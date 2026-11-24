@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ series.display_name or series.name }} · 视频季</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-series-edit">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">VIDEO SEASONS</p>
+        <h1>{{ series.display_name or series.name }}</h1>
+        <p class="stats">
+          视频集 #{{ series.id }} ·
+          {{ series.season_count }} 季 ·
+          {{ series.video_count }} 个视频 ·
+          {{ series.video_bytes|filesize }}
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <a class="download-policy-button" href="/manage/series">返回视频集</a>
+        <button
+          class="download-primary-button download-delete-button"
+          type="button"
+          data-delete-scope="series"
+          data-delete-target="{{ series.id }}"
+          data-delete-name="{{ series.display_name or series.name }}"
+          data-delete-updated-at="{{ series.updated_at }}"
+          data-delete-summary="{{ series.season_count }} 季、{{ series.video_count }} 个视频、{{ series.video_bytes|filesize }}"
+        >删除全部</button>
+      </div>
+    </section>
+
+    <form class="filters download-filters" method="get" action="/manage/series/{{ series.id }}">
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查视频季 ID；其他内容搜索季名称或目录"
+      >
+      <button type="submit">查询</button>
+      {% if query %}
+      <a class="category-button" href="/manage/series/{{ series.id }}">清除</a>
+      {% endif %}
+    </form>
+
+    {% if seasons["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table management-series-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>季名称</th>
+            <th>编号</th>
+            <th>视频</th>
+            <th>总大小</th>
+            <th>素材状态</th>
+            <th>更新时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in seasons["items"] %}
+          <tr>
+            <td class="download-id">#{{ item.id }}</td>
+            <td><strong>{{ item.display_name or item.name }}</strong></td>
+            <td>{{ item.season_number }}</td>
+            <td>{{ item.video_count }} / {{ item.episode_count }} 集</td>
+            <td>{{ item.video_bytes|filesize }}</td>
+            <td>{{ item.metadata_status }} / {{ item.preview_status }}</td>
+            <td class="download-time">{{ item.updated_at }}</td>
+            <td class="management-actions">
+              <a
+                class="download-link-button"
+                href="/manage/series/{{ series.id }}/seasons/{{ item.id }}"
+              >详情显示</a>
+              <button
+                class="download-link-button"
+                type="button"
+                data-edit-scope="season"
+                data-edit-target="{{ item.id }}"
+                data-edit-series-id="{{ series.id }}"
+                data-edit-name="{{ item.name }}"
+                data-edit-display-name="{{ item.display_name or item.name }}"
+                data-edit-updated-at="{{ item.updated_at }}"
+                {% if item.active_delete_job_id %}
+                disabled
+                title="存在活动删除任务，暂不能修改"
+                {% endif %}
+              >修改数据</button>
+              <button
+                class="download-link-button download-delete-button"
+                type="button"
+                data-delete-scope="season"
+                data-delete-target="{{ item.id }}"
+                data-delete-name="{{ series.display_name or series.name }} · {{ item.display_name or item.name }}"
+                data-delete-updated-at="{{ item.updated_at }}"
+                data-delete-summary="{{ item.video_count }} 个视频、{{ item.episode_count }} 个剧集条目、{{ item.video_bytes|filesize }}"
+              >全部删除</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有视频季</h2>
+      <p>当前视频集下没有符合查询条件的有效视频季。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=seasons,
+      pager_action="/manage/series/" ~ series.id,
+      pager_params={"q": query},
+      pager_input_id="season-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  {% include "_collection_delete_dialog.html" %}
+  {% include "_series_edit_dialog.html" %}
+  <script src="/static/series-management.js?v=20261119-series-edit"></script>
+</body>
+</html>

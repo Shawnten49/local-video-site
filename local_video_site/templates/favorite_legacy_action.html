@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ heading }} · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="legacy-action">
+    <p class="eyebrow">FAVORITES</p>
+    <h1>{{ heading }}</h1>
+    <p>{{ message }}</p>
+    <form method="post" action="{{ form_action }}">
+      <button type="submit">{{ submit_label }}</button>
+      <a class="back-link" href="{{ cancel_url }}">返回</a>
+    </form>
+  </main>
+</body>
+</html>

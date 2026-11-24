@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>存储任务 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-format-modes">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/manage/videos">返回视频管理</a>
+    </div>
+  </header>
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">STORAGE TASKS</p>
+        <h1>存储任务</h1>
+        <p id="migration-summary" class="stats">
+          {% if active_tab == "migrations" %}
+          文件迁移 {{ migration_counts["total"] }} 条 ·
+          等待 {{ migration_counts["pending"] }} ·
+          进行中 {{ migration_counts["running"] }} ·
+          待清理 {{ migration_counts["needs_cleanup"] }} ·
+          成功 {{ migration_counts["success"] }} ·
+          失败 {{ migration_counts["failed"] }}
+          {% elif active_tab == "imports" %}
+          外部导入 {{ import_counts["total"] }} 条 ·
+          等待 {{ import_counts["pending"] }} ·
+          进行中 {{ import_counts["running"] }} ·
+          待清理 {{ import_counts["needs_cleanup"] }} ·
+          成功 {{ import_counts["success"] }} ·
+          失败 {{ import_counts["failed"] }}
+          {% else %}
+          媒体格式处理 {{ format_counts["total"] }} 条 ·
+          等待 {{ format_counts["pending"] }} ·
+          进行中 {{ format_counts["running"] }} ·
+          待清理 {{ format_counts["needs_cleanup"] }} ·
+          成功 {{ format_counts["success"] }} ·
+          失败 {{ format_counts["failed"] }}
+          {% endif %}
+        </p>
+      </div>
+      <div class="download-heading-actions migration-heading-actions">
+        {% if active_tab == "migrations" %}
+        <a class="download-primary-button" href="/manage/migrations/new?mode=manual&direction=to_external">
+          手动迁移到外盘
+        </a>
+        <a class="download-policy-button" href="/manage/migrations/new?mode=auto&direction=to_external">
+          自动迁移
+        </a>
+        <a class="download-policy-button" href="/manage/migrations/new?mode=manual&direction=to_local">
+          迁回本地
+        </a>
+        {% elif active_tab == "imports" %}
+        <a class="download-primary-button" href="/manage/migrations/import">
+          导入外部视频
+        </a>
+        {% else %}
+        <a class="download-primary-button" href="/manage/videos">
+          返回视频管理选择视频
+        </a>
+        <a class="download-policy-button" href="#format-job-table">
+          查看处理记录
+        </a>
+        {% endif %}
+      </div>
+    </section>
+
+    <nav class="storage-task-tabs" role="tablist" aria-label="存储任务类型">
+      <a
+        id="tab-migrations"
+        class="storage-task-tab{% if active_tab == 'migrations' %} is-active{% endif %}"
+        role="tab"
+        aria-selected="{{ 'true' if active_tab == 'migrations' else 'false' }}"
+        aria-controls="panel-migrations"
+        href="/manage/migrations?tab=migrations"
+      >
+        <span>文件迁移</span>
+        {% if migration_counts["active"] %}
+        <strong class="storage-tab-count">{{ migration_counts["active"] }}</strong>
+        {% endif %}
+        {% if migration_counts["failed"] %}
+        <strong class="storage-tab-count is-error">{{ migration_counts["failed"] }}</strong>
+        {% endif %}
+      </a>
+      <a
+        id="tab-imports"
+        class="storage-task-tab{% if active_tab == 'imports' %} is-active{% endif %}"
+        role="tab"
+        aria-selected="{{ 'true' if active_tab == 'imports' else 'false' }}"
+        aria-controls="panel-imports"
+        href="/manage/migrations?tab=imports"
+      >
+        <span>外部视频导入</span>
+        {% if import_counts["active"] %}
+        <strong class="storage-tab-count">{{ import_counts["active"] }}</strong>
+        {% endif %}
+        {% if import_counts["failed"] %}
+        <strong class="storage-tab-count is-error">{{ import_counts["failed"] }}</strong>
+        {% endif %}
+      </a>
+      <a
+        id="tab-formats"
+        class="storage-task-tab{% if active_tab == 'formats' %} is-active{% endif %}"
+        role="tab"
+        aria-selected="{{ 'true' if active_tab == 'formats' else 'false' }}"
+        aria-controls="panel-formats"
+        href="/manage/migrations?tab=formats"
+      >
+        <span>格式处理</span>
+        {% if format_counts["active"] %}
+        <strong class="storage-tab-count">{{ format_counts["active"] }}</strong>
+        {% endif %}
+        {% if format_counts["failed"] %}
+        <strong class="storage-tab-count is-error">{{ format_counts["failed"] }}</strong>
+        {% endif %}
+      </a>
+    </nav>
+
+    {% if active_tab == "migrations" %}
+    <section id="panel-migrations" role="tabpanel" aria-labelledby="tab-migrations">
+      <form class="filters download-filters" method="get" action="/manage/migrations">
+        <input type="hidden" name="tab" value="migrations">
+        <input type="search" name="q" value="{{ query }}" placeholder="纯数字精确查迁移/视频 ID；其他内容搜索批次、名称或路径">
+        <select name="status">
+          <option value="">全部状态</option>
+          {% for value, label in status_labels.items() %}
+          <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select name="mode">
+          <option value="">全部模式</option>
+          <option value="manual" {% if mode == "manual" %}selected{% endif %}>手动</option>
+          <option value="auto" {% if mode == "auto" %}selected{% endif %}>自动</option>
+        </select>
+        <select name="direction">
+          <option value="">全部方向</option>
+          <option value="to_external" {% if direction == "to_external" %}selected{% endif %}>迁往外盘</option>
+          <option value="to_local" {% if direction == "to_local" %}selected{% endif %}>迁回本地</option>
+        </select>
+        <button type="submit">查询</button>
+        {% if query or status or mode or direction %}
+        <a class="category-button" href="/manage/migrations?tab=migrations">清除</a>
+        {% endif %}
+      </form>
+
+      {% if migration_data["items"] %}
+      <section class="download-table-wrap management-table-wrap">
+        <table class="download-table migration-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>视频</th>
+              <th>方向 / 模式</th>
+              <th>状态 / 阶段</th>
+              <th>进度</th>
+              <th>源路径</th>
+              <th>目标路径</th>
+              <th>时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in migration_data["items"] %}
+            <tr
+              data-migration-row="{{ item.id }}"
+              data-live="{{ 1 if item.status in ("pending", "running", "needs_cleanup") else 0 }}"
+            >
+              <td class="download-id">#{{ item.id }}<br><small>{{ item.batch_id }}</small></td>
+              <td>
+                {% if item.video_id %}
+                <a href="/manage/videos?q={{ item.video_id }}">#{{ item.video_id }} {{ item.video_current_title or item.video_title }}</a>
+                {% else %}
+                {{ item.video_title }}
+                {% endif %}
+              </td>
+              <td>
+                <span class="storage-badge {{ 'storage-external_online' if item.direction == 'to_external' else 'storage-local_online' }}">
+                  {{ "迁往外盘" if item.direction == "to_external" else "迁回本地" }}
+                </span>
+                <small>{{ "自动" if item.mode == "auto" else "手动" }}</small>
+              </td>
+              <td>
+                <span class="migration-status status-{{ item.status }}" data-field="status">{{ item.status_label }}</span>
+                <small data-field="stage">{{ item.stage_label }}</small>
+                {% if item.error_detail %}
+                <small class="migration-error" title="{{ item.error_detail }}">{{ item.error_code }}</small>
+                {% endif %}
+              </td>
+              <td>
+                <div class="download-progress-track">
+                  <span data-field="progress-bar" style="width: {{ item.progress_percent }}%"></span>
+                </div>
+                <small data-field="progress-text">
+                  {{ item.copied_bytes|filesize }} / {{ item.total_bytes|filesize }}
+                  · {{ item.progress_percent|round(1) }}%
+                </small>
+              </td>
+              <td class="management-path-cell"><span title="{{ item.source_path }}">{{ item.source_path }}</span></td>
+              <td class="management-path-cell"><span title="{{ item.destination_path }}">{{ item.destination_path }}</span></td>
+              <td class="download-time">
+                创建 {{ item.created_at }}<br>
+                {% if item.finished_at %}完成 {{ item.finished_at }}{% endif %}
+              </td>
+              <td class="management-actions">
+                {% if item.status in ("failed", "cancelled") %}
+                <button class="download-link-button" type="button" data-retry-migration="{{ item.id }}">重试</button>
+                {% endif %}
+                {% if item.status in ("pending", "running") %}
+                <button class="download-link-button download-delete-button" type="button" data-cancel-migration="{{ item.id }}">取消</button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% else %}
+      <section class="empty">
+        <h2>没有文件迁移任务</h2>
+        <p>可以创建手动迁移、自动迁移或迁回本地任务。</p>
+      </section>
+      {% endif %}
+
+      {% with
+        pagination=migration_data,
+        pager_action="/manage/migrations",
+        pager_params={"tab": "migrations", "q": query, "status": status, "mode": mode, "direction": direction},
+        pager_input_id="migration-page"
+      %}
+        {% include "_pagination.html" %}
+      {% endwith %}
+    </section>
+    {% elif active_tab == "imports" %}
+    <section id="panel-imports" role="tabpanel" aria-labelledby="tab-imports">
+      <form class="filters download-filters" method="get" action="/manage/migrations">
+        <input type="hidden" name="tab" value="imports">
+        <input type="search" name="import_q" value="{{ import_q }}" placeholder="纯数字精确查导入 ID；其他内容搜索批次或路径">
+        <select name="import_status">
+          <option value="">全部状态</option>
+          {% for value, label in import_status_labels.items() %}
+          <option value="{{ value }}" {% if import_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <select name="import_access_level">
+          <option value="">全部访问级别</option>
+          {% for level in access_levels %}
+          <option value="{{ level }}" {% if import_access_level == level|string %}selected{% endif %}>
+            {{ level }} · {{ access_level_labels[level] }}
+          </option>
+          {% endfor %}
+        </select>
+        <button type="submit">查询</button>
+        {% if import_q or import_status or import_access_level %}
+        <a class="category-button" href="/manage/migrations?tab=imports">清除</a>
+        {% endif %}
+      </form>
+
+      {% if import_jobs["items"] %}
+      <section class="download-table-wrap management-table-wrap">
+        <table class="download-table import-jobs-table">
+          <thead>
+            <tr>
+              <th>ID / 批次</th>
+              <th>来源文件</th>
+              <th>目标文件</th>
+              <th>任务状态</th>
+              <th>资源状态</th>
+              <th>访问级别</th>
+              <th>视频</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in import_jobs["items"] %}
+            <tr
+              data-import-job-row="{{ item.id }}"
+              data-import-active="{{ 1 if item.status in ('pending', 'running', 'needs_cleanup') else 0 }}"
+            >
+              <td>#{{ item.id }}<br><small>{{ item.batch_id }}</small></td>
+              <td class="management-path-cell"><span title="{{ item.source_path }}">{{ item.source_path }}</span></td>
+              <td class="management-path-cell"><span title="{{ item.destination_path }}">{{ item.destination_path }}</span></td>
+              <td>
+                <span class="migration-status status-{{ item.status }}" data-field="import-status">{{ item.status_label }}</span>
+                <small data-field="import-stage">{{ item.progress_percent|round(1) }}% · {{ item.stage }}</small>
+                <small class="migration-error{% if not item.error_detail %} is-hidden{% endif %}" data-field="import-error" title="{{ item.error_detail or '' }}">{{ item.error_code or "" }}</small>
+              </td>
+              <td class="import-resource-state">
+                <small>元数据：<span data-field="import-metadata">{{ item.metadata_status }}</span></small>
+                <small>缩略图：<span data-field="import-thumbnail">{{ item.thumbnail_status }}</span></small>
+                <small>预览：<span data-field="import-preview">{{ item.video_preview_status or item.preview_status }}</span></small>
+              </td>
+              <td>{{ item.access_level }} · {{ access_level_labels[item.access_level] }}</td>
+              <td>
+                <span data-field="import-video">
+                  {% if item.video_id %}
+                  <a href="/manage/videos?q={{ item.video_id }}">#{{ item.video_id }} {{ item.video_title or "" }}</a>
+                  {% else %}
+                  —
+                  {% endif %}
+                </span>
+                <small>{{ "成功后删除源文件" if item.delete_source else "保留源文件" }}</small>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% else %}
+      <section class="empty">
+        <h2>暂无外部视频导入任务</h2>
+        <p>点击“导入外部视频”选择外盘文件或目录。</p>
+      </section>
+      {% endif %}
+
+      {% with
+        pagination=import_jobs,
+        pager_action="/manage/migrations",
+        pager_params={"tab": "imports", "import_q": import_q, "import_status": import_status, "import_access_level": import_access_level},
+        pager_input_id="import-page"
+      %}
+        {% include "_pagination.html" %}
+      {% endwith %}
+    </section>
+    {% else %}
+    <section id="panel-formats" role="tabpanel" aria-labelledby="tab-formats">
+      <p class="stats">
+        MKV 可无损封装为 MP4；RMVB 等不兼容格式必须选择有损编码转译。
+      </p>
+      <form class="filters download-filters" method="get" action="/manage/migrations">
+        <input type="hidden" name="tab" value="formats">
+        <input type="search" name="format_q" value="{{ format_q }}" placeholder="纯数字精确查任务/视频 ID；其他内容搜索名称或路径">
+        <select name="format_status">
+          <option value="">全部状态</option>
+          {% for value, label in format_status_labels.items() %}
+          <option value="{{ value }}" {% if format_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">查询</button>
+        {% if format_q or format_status %}
+        <a class="category-button" href="/manage/migrations?tab=formats">清除</a>
+        {% endif %}
+      </form>
+
+      {% if format_jobs["items"] %}
+      <section id="format-job-table" class="download-table-wrap management-table-wrap">
+        <table class="download-table format-jobs-table">
+          <thead>
+            <tr>
+              <th>ID / 批次</th>
+              <th>视频</th>
+              <th>方式</th>
+              <th>编码</th>
+              <th>状态 / 阶段</th>
+              <th>进度</th>
+              <th>源 / 目标</th>
+              <th>尝试</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in format_jobs["items"] %}
+            <tr
+              data-format-job-row="{{ item.id }}"
+              data-format-active="{{ 1 if item.status in ('pending', 'running', 'needs_cleanup') else 0 }}"
+            >
+              <td class="download-id">
+                #{{ item.id }}<br><small>{{ item.batch_id }}</small>
+              </td>
+              <td>
+                <a href="/manage/videos?q={{ item.video_id }}">
+                  #{{ item.video_id }} {{ item.video_current_title or "视频已不存在" }}
+                </a>
+                {% if item.compatibility_class == "standard" %}
+                <small>标准兼容</small>
+                {% elif item.compatibility_class == "conditional" %}
+                <small>条件兼容 · 保留原编码</small>
+                {% else %}
+                <small>编码不兼容</small>
+                {% endif %}
+              </td>
+              <td>
+                <span class="format-operation-badge{% if item.lossy %} is-lossy{% endif %}">
+                  {{ item.operation_label }}
+                </span>
+              </td>
+              <td>
+                {{ item.source_video_codec or "unknown" }}
+                +
+                {{ item.source_audio_codec or "无音频" }}
+              </td>
+              <td>
+                <span class="migration-status status-{{ item.status }}" data-field="format-status">{{ item.status_label }}</span>
+                <small data-field="format-stage">{{ item.stage_label }}</small>
+                <small class="migration-error{% if not item.error_detail %} is-hidden{% endif %}" data-field="format-error" title="{{ item.error_detail or '' }}">{{ item.error_code or "" }}</small>
+              </td>
+              <td>
+                <div class="download-progress-track">
+                  <span data-field="format-progress-bar" style="width: {{ item.progress_percent }}%"></span>
+                </div>
+                <small data-field="format-progress-text">{{ item.progress_percent|round(1) }}%</small>
+              </td>
+              <td class="management-path-cell">
+                <span title="{{ item.source_path }}">{{ item.source_path }}</span>
+                <small title="{{ item.target_path }}">→ {{ item.target_path }}</small>
+              </td>
+              <td>{{ item.attempt_count }}</td>
+              <td class="management-actions">
+                {% if item.backup_status == "available" %}
+                <button
+                  class="download-link-button"
+                  type="button"
+                  data-restore-format-backup="{{ item.id }}"
+                >恢复原视频</button>
+                <button
+                  class="download-link-button download-delete-button"
+                  type="button"
+                  data-delete-format-backup="{{ item.id }}"
+                >删除安全备份</button>
+                {% endif %}
+                {% if item.status in ("failed", "cancelled", "needs_cleanup") %}
+                <button
+                  class="download-link-button"
+                  type="button"
+                  data-retry-format-job="{{ item.id }}"
+                >
+                  {{ "清理旧文件" if item.status == "needs_cleanup" else "重试" }}
+                </button>
+                {% endif %}
+                {% if item.status in ("pending", "running") %}
+                <button
+                  class="download-link-button download-delete-button"
+                  type="button"
+                  data-cancel-format-job="{{ item.id }}"
+                >
+                  取消
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+      {% else %}
+      <section class="empty">
+        <h2>暂无媒体格式处理任务</h2>
+        <p>请在视频管理列表中点击对应视频的“封装 MP4”或“转译 MP4”。</p>
+      </section>
+      {% endif %}
+
+      {% with
+        pagination=format_jobs,
+        pager_action="/manage/migrations",
+        pager_params={"tab": "formats", "format_q": format_q, "format_status": format_status},
+        pager_input_id="format-page"
+      %}
+        {% include "_pagination.html" %}
+      {% endwith %}
+    </section>
+    {% endif %}
+
+    <p id="migration-notice" class="download-notice" aria-live="polite" hidden></p>
+  </main>
+
+  <script src="/static/migrations.js?v=20261119-format-modes"></script>
+</body>
+</html>

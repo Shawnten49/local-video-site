@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>初始化管理员 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="account-page">
+  <main class="account-card">
+    <p class="eyebrow">FIRST RUN</p>
+    <h1>创建首个管理员</h1>
+    <p class="stats">该页面只允许本机访问，创建后会自动关闭。</p>
+    <form method="post" action="/setup" class="account-form">
+      <label>用户名<input name="username" autocomplete="username" required autofocus></label>
+      <label>密码<input name="password" type="password" autocomplete="new-password" minlength="{{ min_password_length }}" required></label>
+      <label>确认密码<input name="confirmation" type="password" autocomplete="new-password" minlength="{{ min_password_length }}" required></label>
+      {% if error %}<p class="account-error">{{ error }}</p>{% endif %}
+      <button class="download-primary-button" type="submit">创建管理员</button>
+    </form>
+  </main>
+</body>
+</html>

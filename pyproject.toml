@@ -1,0 +1,49 @@
+[tool.ruff]
+target-version = "py39"
+line-length = 88
+extend-exclude = [
+  ".venv",
+  "local_video_site/static/vendor",
+  "android-tv-native",
+  "android-tv-shell",
+]
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+follow_imports = "skip"
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = false
+files = [
+  "local_video_site/db",
+  "local_video_site/repositories",
+  "local_video_site/cli",
+  "local_video_site/downloads/tasks.py",
+  "local_video_site/downloads/progress.py",
+  "local_video_site/downloads/worker.py",
+  "local_video_site/jobs/runtime.py",
+  "local_video_site/jobs/leases.py",
+  "local_video_site/jobs/integrity.py",
+  "local_video_site/jobs/integrity_tasks.py",
+  "local_video_site/web/application.py",
+  "local_video_site/web/lifespan.py",
+  "local_video_site/web/models",
+  "local_video_site/web/routes",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["local_video_site"]
+omit = [
+  "local_video_site/__main__.py",
+  "local_video_site/static/vendor/*",
+]
+
+[tool.coverage.report]
+fail_under = 55
+show_missing = true
+skip_covered = true

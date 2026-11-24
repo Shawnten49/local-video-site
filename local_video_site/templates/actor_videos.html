@@ -1,0 +1,78 @@
+<!doctype html>
+{% from "_video_thumb.html" import video_thumb %}
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ actor.name }} · 演员 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/actors">返回演员清单</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="library-heading actor-detail-heading">
+      <div class="actor-profile-heading">
+        <span class="actor-avatar-frame actor-profile-avatar" style="--avatar-hue: {{ actor.id % 360 }}">
+          {% if actor.avatar_available %}
+          <img
+            class="actor-avatar"
+            src="/actor-avatar/{{ actor.id }}?v={{ (actor.avatar_fetched_at or actor.id)|urlencode }}"
+            alt="{{ actor.name }}"
+            width="112"
+            height="112"
+            decoding="async"
+          >
+          {% else %}
+          <span class="actor-avatar-fallback" aria-hidden="true">{{ actor.name[:1]|upper }}</span>
+          {% endif %}
+        </span>
+        <div>
+          <p class="eyebrow">ACTOR</p>
+          <h1>{{ actor.name }}</h1>
+          <p class="stats">{{ actor.video_count }} 部视频</p>
+        </div>
+      </div>
+      <form class="filters" method="get" action="/actors/{{ actor.id }}">
+        <select name="sort" aria-label="排序">
+          <option value="recent" {% if sort == 'recent' %}selected{% endif %}>最近更新</option>
+          <option value="name" {% if sort == 'name' %}selected{% endif %}>名称</option>
+          <option value="duration" {% if sort == 'duration' %}selected{% endif %}>时长</option>
+          <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>最旧优先</option>
+        </select>
+        <button type="submit">应用</button>
+      </form>
+    </section>
+
+    <section class="video-grid">
+      {% for video in data["items"] %}
+      <a class="video-card" href="/watch/{{ video.id }}?return_to={{ return_to|urlencode }}">
+        {{ video_thumb(video) }}
+        <div class="card-body">
+          <h2 title="{{ video.title }}">{{ video.title }}</h2>
+          <p>{{ video.directory }} · {{ video.size|filesize }}</p>
+        </div>
+      </a>
+      {% endfor %}
+    </section>
+
+    {% with
+      pagination=data,
+      pager_action="/actors/" ~ actor.id,
+      pager_params={"sort": sort},
+      pager_input_id="actor-video-page-jump"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+  <script src="/static/hover-preview.js" defer></script>
+</body>
+</html>

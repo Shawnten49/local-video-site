@@ -1,0 +1,34 @@
+<dialog id="collection-delete-dialog" class="delete-dialog">
+  <form id="collection-delete-form" class="delete-dialog-card">
+    <p class="eyebrow">DANGER ZONE</p>
+    <h2 id="collection-delete-title">确认删除</h2>
+    <div id="collection-delete-warning" class="delete-warning"></div>
+    <dl class="delete-video-info">
+      <div><dt>目标</dt><dd id="collection-delete-target"></dd></div>
+      <div><dt>删除范围</dt><dd id="collection-delete-scope"></dd></div>
+    </dl>
+    <label class="delete-password-label" for="collection-delete-code">
+      删除校验码
+    </label>
+    <input
+      id="collection-delete-code"
+      type="password"
+      autocomplete="current-password"
+      required
+    >
+    <p id="collection-delete-error" class="delete-error" role="alert"></p>
+    <div class="delete-dialog-actions">
+      <button
+        class="cover-secondary-button"
+        type="button"
+        data-cancel-collection-delete
+      >取消</button>
+      <button
+        id="collection-delete-submit"
+        class="danger-button"
+        type="submit"
+        disabled
+      >确认创建删除任务</button>
+    </div>
+  </form>
+</dialog>

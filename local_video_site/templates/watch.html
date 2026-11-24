@@ -1,0 +1,590 @@
+<!doctype html>
+{% set viewer = request.state.identity %}
+{% set is_admin = viewer.role == "admin" %}
+{% set watch_heading = (season.series_name ~ " · " ~ season.season_name) if season else video.title %}
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ watch_heading|truncate(60, True, "…") }} · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-standardize-video">
+</head>
+<body class="watch-page">
+  <header class="site-header compact topbar">
+    <div class="watch-header-actions">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="{{ return_to }}">返回</a>
+    </div>
+    <div class="watch-header-right-actions">
+      {% if viewer.authenticated %}
+      <form
+        class="favorite-form"
+        method="post"
+        action="{% if is_favorite %}/favorites/{{ video.id }}/remove{% else %}/favorites/{{ video.id }}/add{% endif %}{% if return_to != '/' %}?return_to={{ return_to|urlencode }}{% endif %}"
+      >
+        <button
+          class="favorite-toggle{% if is_favorite %} is-active{% endif %}"
+          type="submit"
+          aria-pressed="{{ 'true' if is_favorite else 'false' }}"
+        >{% if is_favorite %}取消收藏{% else %}添加收藏{% endif %}</button>
+      </form>
+      {% else %}
+      <a class="favorite-toggle" href="/login?next={{ request.url.path|urlencode }}">登录</a>
+      {% endif %}
+      {% if is_admin %}
+      <button
+        id="delete-video-button"
+        class="delete-video-button"
+        type="button"
+        data-video-id="{{ video.id }}"
+        data-video-title="{{ video.title }}"
+        data-return-to="{{ return_to }}"
+      >删除视频</button>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="watch-main">
+    <div class="player-shell">
+      <video id="player" controls preload="metadata" playsinline
+        poster="{{ poster_url }}"
+        data-state-url="/api/playback-state/{{ video.id }}"
+        data-initial-state="{{ playback.state }}"
+        data-prepare-url="/api/prepare/{{ video.id }}"
+        data-playback-url="{{ playback.playback_url or '' }}"
+        data-playback-engine="{{ playback.engine or 'native' }}"
+        data-movi-script="{{ movi_asset_base }}/element.slim.js"
+        data-movi-wasm="{{ movi_asset_base }}/movi.wasm"
+        data-movi-buffer-mb="{{ movi_buffer_mb }}"
+        data-movi-load-timeout="{{ movi_load_timeout_seconds }}"
+        data-video-codec="{{ video.video_codec or '' }}"
+        data-audio-codec="{{ video.audio_codec or '' }}"
+        {% if is_admin %}
+        data-standardize-preview-url="/api/videos/{{ video.id }}/standardization-preview"
+        data-standardize-url="/api/videos/{{ video.id }}/standardize"
+        data-video-path="{{ video.path }}"
+        data-video-mtime-ns="{{ video.mtime_ns }}"
+        {% endif %}
+        {% if playback.playable and playback.engine != "movi" %}src="{{ playback.playback_url }}"{% endif %}></video>
+      <div
+        id="playback-warning"
+        class="playback-warning playback-state-{{ playback.state }}"
+        data-state="{{ playback.state }}"
+        {% if playback.playable %}hidden{% endif %}
+      >
+        <strong id="playback-warning-title">{{ playback.title }}</strong>
+        <span id="playback-warning-text">{{ playback.message }}</span>
+        <span id="playback-warning-action">{{ playback.action_text }}</span>
+        <div class="playback-warning-actions">
+          <button
+            id="playback-retry"
+            class="playback-retry-button"
+            type="button"
+            {% if not playback.retryable %}hidden{% endif %}
+          >重新检测</button>
+          <button
+            id="playback-standardize"
+            class="playback-standardize-button"
+            type="button"
+            hidden
+          >转标准码</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="episode-navigation" aria-label="视频连续播放">
+      {% if season %}
+      {% if season_previous and season_previous.watch_url %}
+      <a class="episode-nav-button" href="{{ season_previous.watch_url }}">
+        <span class="episode-nav-label">← 上一集</span>
+        <strong>
+          第 {{ season_previous.display_episode_number or season_previous.episode_number }} 集{% if season_previous.navigation_title %} ·
+          {{ season_previous.navigation_title }}{% endif %}
+        </strong>
+      </a>
+      {% else %}
+      <span class="episode-nav-button is-disabled" aria-disabled="true">
+        <span class="episode-nav-label">← 上一集</span>
+        <strong>没有上一集</strong>
+      </span>
+      {% endif %}
+
+      {% if season_next and season_next.watch_url %}
+      <a class="episode-nav-button episode-nav-next" href="{{ season_next.watch_url }}">
+        <span class="episode-nav-label">下一集 →</span>
+        <strong>
+          第 {{ season_next.display_episode_number or season_next.episode_number }} 集{% if season_next.navigation_title %} ·
+          {{ season_next.navigation_title }}{% endif %}
+        </strong>
+      </a>
+      {% else %}
+      <span class="episode-nav-button episode-nav-next is-disabled" aria-disabled="true">
+        <span class="episode-nav-label">下一集 →</span>
+        <strong>没有下一集</strong>
+      </span>
+      {% endif %}
+      {% else %}
+      {% if previous_video %}
+      <a class="episode-nav-button" href="{{ previous_url }}">
+        <span class="episode-nav-label">← 上一集</span>
+        <strong title="{{ previous_video.title }}">{{ previous_video.title }}</strong>
+      </a>
+      {% else %}
+      <span class="episode-nav-button is-disabled" aria-disabled="true">
+        <span class="episode-nav-label">← 上一集</span>
+        <strong>没有上一集</strong>
+      </span>
+      {% endif %}
+
+      {% if next_video %}
+      <a class="episode-nav-button episode-nav-next" href="{{ next_url }}">
+        <span class="episode-nav-label">下一集 →</span>
+        <strong title="{{ next_video.title }}">{{ next_video.title }}</strong>
+      </a>
+      {% else %}
+      <span class="episode-nav-button episode-nav-next is-disabled" aria-disabled="true">
+        <span class="episode-nav-label">下一集 →</span>
+        <strong>没有下一集</strong>
+      </span>
+      {% endif %}
+      {% endif %}
+    </nav>
+
+    {% if season %}
+    <section class="season-episode-selector" aria-labelledby="season-episode-title">
+      <div class="season-episode-heading">
+        <div>
+          <p class="eyebrow">SEASON EPISODES</p>
+          <h2 id="season-episode-title">{{ season.series_name }} · {{ season.season_name }}</h2>
+        </div>
+        <span>{{ season_episodes|length }} 集</span>
+      </div>
+      <div class="season-episode-grid">
+        {% for episode in season_episodes %}
+          {% if episode.watch_url %}
+          <a
+            class="season-episode-button{% if episode.video_id == video.id %} is-current{% endif %}{% if not episode.playable %} is-offline{% endif %}"
+            href="{{ episode.watch_url }}"
+            title="{{ episode.episode_title or episode.display_title }}"
+          >
+            <strong>{{ "%02d"|format(episode.display_episode_number or episode.episode_number) }}</strong>
+            {% if not episode.playable %}
+            <span>
+              {% if episode.playback_state == "external_offline" %}
+                外置盘离线
+              {% elif episode.playback_state in ("missing", "file_missing") %}
+                文件缺失
+              {% elif episode.playback_state == "deleted" %}
+                已删除
+              {% else %}
+                当前不可用
+              {% endif %}
+            </span>
+            {% elif episode.episode_title %}
+            <span>{{ episode.episode_title }}</span>
+            {% endif %}
+          </a>
+          {% else %}
+          <span class="season-episode-button is-disabled" title="{{ episode.display_title }}">
+            <strong>{{ "%02d"|format(episode.display_episode_number or episode.episode_number) }}</strong>
+            <span>尚未下载</span>
+          </span>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="watch-meta">
+      <div id="video-title-section" class="watch-title-section">
+        <p class="eyebrow">{{ video.directory }}</p>
+        <div class="watch-title-row">
+          <div class="watch-title-copy">
+            <h1
+              id="video-title-text"
+              title="{{ watch_heading }}"
+            >{{ watch_heading }}</h1>
+            <button
+              id="toggle-video-title"
+              class="watch-title-toggle"
+              type="button"
+              aria-controls="video-title-text"
+              aria-expanded="false"
+              hidden
+            >展开完整标题</button>
+          </div>
+          {% if is_admin %}
+          <button
+            id="edit-video-name"
+            class="watch-edit-button watch-title-edit"
+            type="button"
+            data-video-id="{{ video.id }}"
+            data-video-title="{{ video.title }}"
+            data-video-path="{{ video.path }}"
+            data-file-stem="{{ video_file_stem }}"
+            data-extension="{{ video_extension }}"
+            data-directory="{{ video_directory }}"
+            data-return-to="{{ return_to }}"
+          >编辑</button>
+          {% endif %}
+        </div>
+        {% if season and current_episode %}
+        <p class="watch-episode-caption">
+          当前播放：第 {{ current_episode.display_episode_number or current_episode.episode_number }} 集{% if current_episode.episode_title %}
+          · {{ current_episode.episode_title }}{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <dl>
+        <div><dt>时长</dt><dd data-duration="{{ video.duration or '' }}">{{ video.duration|duration }}</dd></div>
+        <div><dt>画质</dt><dd>{{ video.width|resolution(video.height) }}</dd></div>
+        <div><dt>大小</dt><dd>{{ video.size|filesize }}</dd></div>
+        <div><dt>编码</dt><dd>{{ video.video_codec or '未知' }} / {{ video.audio_codec or '未知' }}</dd></div>
+      </dl>
+      {% if is_admin %}
+      <p id="video-file-path" class="path">{{ video.path }}</p>
+      {% endif %}
+      <p class="shortcuts">快捷键：空格播放/暂停 · ←/→ 快退/快进 5 秒 · J/L 10 秒 · M 静音 · F 全屏</p>
+    </section>
+
+    {% if is_admin %}
+    <section
+      id="video-actors-section"
+      class="watch-categories"
+      aria-labelledby="video-actors-title"
+    >
+      <h2 id="video-actors-title">演员<span class="watch-section-count">{{ actors|length }}</span></h2>
+      {% if actors %}
+      <div id="video-actors-list" class="watch-category-list">
+        {% for actor in actors %}
+        <a class="watch-category-tag watch-actor-tag" href="/actors/{{ actor.id }}">
+          {{ actor.name }}
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p id="video-actors-empty" class="watch-categories-empty">暂无演员信息</p>
+      {% endif %}
+    </section>
+
+    <section
+      id="video-categories-section"
+      class="watch-categories"
+      aria-labelledby="video-categories-title"
+    >
+      <div class="watch-section-heading">
+        <h2 id="video-categories-title">视频分类<span class="watch-section-count">{{ categories|length + manual_categories|length }}</span></h2>
+        <button
+          id="edit-manual-categories"
+          class="watch-edit-button"
+          type="button"
+          data-video-id="{{ video.id }}"
+        >编辑</button>
+      </div>
+      {% if categories or manual_categories %}
+      <div id="video-categories-list" class="watch-category-list">
+        {% for category in manual_categories %}
+        <a
+          class="watch-category-tag watch-manual-category-tag"
+          href="/manual-categories/{{ category.id }}"
+        >{{ category.name }}</a>
+        {% endfor %}
+        {% for category in categories %}
+        <a class="watch-category-tag" href="/categories/{{ category.id }}">
+          {{ category.name }}
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p id="video-categories-empty" class="watch-categories-empty">暂无分类</p>
+      {% endif %}
+    </section>
+
+    <section class="watch-source" aria-label="视频源地址">
+      <div class="watch-source-actions">
+        {% if video.original_url %}
+        <a
+          class="watch-source-link"
+          href="{{ video.original_url }}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >视频源地址</a>
+        {% else %}
+        <span class="watch-source-link is-disabled" aria-disabled="true">
+          视频源地址不可用
+        </span>
+        {% endif %}
+        {% if video.download_source_url and video.download_source_url != video.original_url %}
+        <a
+          class="watch-source-link"
+          href="{{ video.download_source_url }}"
+          target="_blank"
+          rel="noopener noreferrer"
+        >下载来源</a>
+        {% endif %}
+        <button
+          id="refresh-video-metadata"
+          class="watch-source-link"
+          type="button"
+          data-video-id="{{ video.id }}"
+          {% if not video.original_url %}disabled aria-disabled="true"{% endif %}
+        >重新获取演员和分类信息</button>
+      </div>
+      <p
+        id="video-metadata-refresh-status"
+        class="watch-metadata-refresh-status"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></p>
+    </section>
+    {% endif %}
+  </main>
+
+  {% if is_admin %}
+  <dialog
+    id="manual-category-edit-dialog"
+    class="manual-category-dialog"
+    aria-labelledby="manual-category-edit-title"
+  >
+    <form id="manual-category-edit-form" class="manual-category-dialog-card">
+      <header>
+        <div>
+          <p class="eyebrow">EDIT CATEGORIES</p>
+          <h2 id="manual-category-edit-title">编辑人工标签</h2>
+        </div>
+        <button type="button" data-close-manual-category-edit aria-label="关闭">×</button>
+      </header>
+      <div>
+        <label for="manual-category-option-search">搜索人工标签</label>
+        <input
+          id="manual-category-option-search"
+          type="search"
+          placeholder="输入名称筛选"
+          autocomplete="off"
+        >
+      </div>
+      <div id="manual-category-options" class="manual-category-options">
+        {% for category in manual_category_options %}
+        <label class="manual-category-option" data-category-name="{{ category.name|lower }}">
+          <input
+            type="checkbox"
+            value="{{ category.id }}"
+            {% if category.id in selected_manual_category_ids %}checked{% endif %}
+          >
+          <span>{{ category.name }}</span>
+          <small>{{ category.video_count }}</small>
+        </label>
+        {% else %}
+        <p class="manual-category-empty">
+          暂无人工标签，请先到 <a href="/categories">分类页面</a> 添加。
+        </p>
+        {% endfor %}
+      </div>
+      {% if categories %}
+      <div class="watch-readonly-categories">
+        <strong>自动分类（只读）</strong>
+        <div>
+          {% for category in categories %}
+          <span>{{ category.name }} · 自动</span>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      <p id="manual-category-edit-error" class="download-form-error"></p>
+      <footer>
+        <a class="cover-secondary-button" href="/categories">管理人工标签</a>
+        <button type="button" class="cover-secondary-button" data-close-manual-category-edit>取消</button>
+        <button id="save-video-manual-categories" type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog
+    id="rename-video-dialog"
+    class="rename-video-dialog"
+    aria-labelledby="rename-video-title"
+  >
+    <form id="rename-video-form" class="rename-video-card">
+      <header class="rename-video-header">
+        <div>
+          <p class="eyebrow">RENAME FILE</p>
+          <h2 id="rename-video-title">修改文件名称</h2>
+        </div>
+        <button
+          type="button"
+          class="cover-dialog-close"
+          data-close-rename-video
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <div class="rename-video-current">
+        <span>当前文件</span>
+        <strong id="rename-current-file">{{ video_file_name }}</strong>
+      </div>
+      <label for="rename-video-input">新文件名称</label>
+      <div class="rename-video-input-row">
+        <input
+          id="rename-video-input"
+          type="text"
+          maxlength="180"
+          autocomplete="off"
+          required
+        >
+        <span id="rename-video-extension">{{ video_extension }}</span>
+      </div>
+      <p class="rename-video-preview">
+        <span>新路径</span>
+        <code id="rename-video-preview"></code>
+      </p>
+      <p class="download-field-hint">
+        只修改实际存储文件名，视频展示标题保持不变。
+      </p>
+      <p id="rename-video-error" class="download-form-error" role="alert"></p>
+      <footer class="rename-video-footer">
+        <button
+          type="button"
+          class="cover-secondary-button"
+          data-close-rename-video
+        >取消</button>
+        <button id="save-video-name" type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <p
+    id="video-rename-notice"
+    class="video-rename-notice"
+    role="status"
+    aria-live="polite"
+    hidden
+  ></p>
+
+  <dialog
+    id="metadata-refresh-confirm-dialog"
+    class="metadata-confirm-dialog"
+    aria-labelledby="metadata-refresh-confirm-title"
+  >
+    <div class="metadata-confirm-card">
+      <p class="eyebrow">REFRESH METADATA</p>
+      <h2 id="metadata-refresh-confirm-title">重新获取演员和分类？</h2>
+      <p class="metadata-confirm-message">
+        系统将重新访问视频原始页面。
+      </p>
+      <p class="metadata-confirm-warning">
+        获取成功后，当前视频现有的演员和分类将被新数据替换。
+      </p>
+      <div class="metadata-confirm-actions">
+        <button
+          id="cancel-metadata-refresh"
+          class="cover-secondary-button"
+          type="button"
+        >取消</button>
+        <button
+          id="confirm-metadata-refresh"
+          class="metadata-confirm-primary"
+          type="button"
+        >确认重新获取</button>
+      </div>
+    </div>
+  </dialog>
+
+  {% if is_admin %}
+  <dialog
+    id="standardize-video-dialog"
+    class="management-dialog format-mp4-dialog"
+    aria-labelledby="standardize-video-title"
+  >
+    <form id="standardize-video-form" class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">STANDARD MP4</p>
+          <h2 id="standardize-video-title">转标准码</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-standardize
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <section class="standardize-summary">
+        <strong id="standardize-strategy">正在检查视频格式</strong>
+        <span id="standardize-source"></span>
+        <span id="standardize-target"></span>
+      </section>
+      <p id="standardize-warning" class="format-mp4-warning" hidden>
+        重新编码会改变视频和音频数据，处理时间较长。
+      </p>
+      <label id="standardize-lossy-confirm" class="standardize-confirm" hidden>
+        <input id="standardize-confirm-lossy" type="checkbox">
+        <span>我了解此操作需要重新编码，画质和音质可能发生变化。</span>
+      </label>
+      <p id="standardize-error" class="download-form-error" role="alert"></p>
+      <footer class="edit-video-actions">
+        <button
+          class="download-secondary-button"
+          type="button"
+          data-close-standardize
+        >取消</button>
+        <button
+          id="confirm-standardize-video"
+          class="download-primary-button"
+          type="submit"
+        >确认转标准码</button>
+      </footer>
+    </form>
+  </dialog>
+  {% endif %}
+
+  <dialog id="delete-video-dialog" class="delete-dialog">
+    <div class="delete-dialog-card">
+      <section id="delete-confirm-step">
+        <p class="eyebrow">DANGER ZONE</p>
+        <h2>删除这个视频？</h2>
+        <div class="delete-warning">
+          将删除本地视频文件、缩略图、封面、播放缓存，以及数据库中的收藏、分类和演员关系。此操作不可撤销。
+        </div>
+        <dl class="delete-video-info">
+          <div><dt>视频名称</dt><dd id="delete-video-title">{{ video.title }}</dd></div>
+          <div><dt>所属目录</dt><dd>{{ video.directory }}</dd></div>
+          <div><dt>文件大小</dt><dd>{{ video.size|filesize }}</dd></div>
+        </dl>
+        <div class="delete-dialog-actions">
+          <button id="cancel-delete-step" class="cover-secondary-button" type="button">取消</button>
+          <button id="continue-delete" class="danger-button" type="button">继续删除</button>
+        </div>
+      </section>
+
+      <form id="delete-confirm-form" hidden>
+        <p class="eyebrow">FINAL CONFIRMATION</p>
+        <h2>输入删除校验码</h2>
+        <p class="delete-warning">密码验证通过后将删除视频文件和本地派生资源，数据库记录保留为已删除状态。</p>
+        <label class="delete-password-label" for="delete-password">删除校验码</label>
+        <input
+          id="delete-password"
+          name="password"
+          type="password"
+          autocomplete="off"
+          required
+        >
+        <p id="delete-error" class="delete-error" role="alert"></p>
+        <div class="delete-dialog-actions">
+          <button id="cancel-delete-password" class="cover-secondary-button" type="button">取消</button>
+          <button id="confirm-delete-button" class="danger-button" type="submit" disabled>确认删除</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  {% endif %}
+  <script type="module" src="/static/player.js?v=20261122-standardize-video"></script>
+  <script src="/static/refresh-video-metadata.js"></script>
+  <script src="/static/edit-manual-categories.js"></script>
+  <script src="/static/video-title.js"></script>
+  <script src="/static/rename-video.js"></script>
+  <script src="/static/delete-video.js"></script>
+</body>
+</html>

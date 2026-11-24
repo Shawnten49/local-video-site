@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频裁剪 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-video-trim-list">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">VIDEO TRIM</p>
+        <h1>视频裁剪</h1>
+        <p class="stats">
+          共 {{ data["total"] }} 个任务 ·
+          等待 {{ data["counts"].get("pending", 0) }} ·
+          进行中 {{ data["counts"].get("running", 0) }} ·
+          成功 {{ data["counts"].get("success", 0) }} ·
+          失败 {{ data["counts"].get("failed", 0) }} ·
+          可用安全备份 {{ data["backup_count"] }} 个 ·
+          {{ data["backup_bytes"]|filesize }}
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <a class="download-secondary-button" href="/manage/videos">
+          返回视频管理
+        </a>
+      </div>
+    </section>
+
+    <form class="filters download-filters" method="get" action="/manage/videos/trims">
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查裁剪/视频 ID；其他内容搜索任务、名称或路径"
+      >
+      <select name="status">
+        <option value="">全部状态</option>
+        {% for value, label in status_labels.items() %}
+        <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">查询</button>
+      {% if query or status %}
+      <a class="category-button" href="/manage/videos/trims">清除</a>
+      {% endif %}
+    </form>
+
+    {% if data["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table management-table video-trim-table">
+        <thead>
+          <tr>
+            <th>任务</th>
+            <th>视频</th>
+            <th>模式</th>
+            <th>剪切时间</th>
+            <th>时长变化</th>
+            <th>状态</th>
+            <th>进度</th>
+            <th>结果</th>
+            <th>安全备份</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in data["items"] %}
+          <tr>
+            <td class="download-id">
+              #{{ job.id }}
+              <small>{{ job.job_id }}</small>
+            </td>
+            <td class="management-title-cell">
+              <a href="/watch/{{ job.video_id }}" target="_blank" rel="noopener">
+                #{{ job.video_id }} {{ job.video_title or "视频已删除" }}
+              </a>
+              <small>{{ job.source_path }}</small>
+            </td>
+            <td>
+              {% if job.cut_mode == "after_keyframe" %}
+                去掉广告优先
+              {% elif job.cut_mode == "before_keyframe" %}
+                保留正片优先
+              {% elif job.cut_mode == "precise" %}
+                精确剪切
+              {% else %}
+                {{ job.cut_mode }}
+              {% endif %}
+            </td>
+            <td>
+              请求 {{ "%.3f"|format(job.requested_start_seconds) }} 秒
+              <small>实际 {{ "%.3f"|format(job.actual_cut_seconds) }} 秒</small>
+            </td>
+            <td>
+              {% if job.output_duration %}
+                {{ "%.3f"|format(job.output_duration) }} 秒
+              {% else %}
+                —
+              {% endif %}
+              <small>原 {{ "%.3f"|format(job.source_duration or 0) }} 秒</small>
+            </td>
+            <td>
+              <span class="trim-status trim-status-{{ job.status }}">
+                {{ status_labels.get(job.status, job.status) }}
+              </span>
+            </td>
+            <td>
+              {{ "%.0f"|format(job.progress_percent or 0) }}%
+              <small>{{ stage_labels.get(job.stage, job.stage) }}</small>
+            </td>
+            <td class="management-path-cell">
+              {% if job.error_detail %}
+                <span class="trim-error">{{ job.error_detail }}</span>
+              {% elif job.status == "success" %}
+                已更新为 {{ job.output_size|filesize }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>
+              {% if job.backup_status == "available" %}
+                <span class="trim-status trim-status-success">可用</span>
+                <small>{{ (job.backup_size or 0)|filesize }}</small>
+              {% elif job.backup_status == "deleted" %}
+                <span class="trim-status">已删除</span>
+              {% elif job.backup_status == "missing" %}
+                <span class="trim-status trim-status-failed">文件缺失</span>
+              {% else %}
+                <span class="trim-status">无</span>
+              {% endif %}
+            </td>
+            <td class="download-time">{{ job.created_at }}</td>
+            <td class="management-actions trim-job-actions">
+              {% if job.status == "success" and job.backup_status == "available" %}
+              <button
+                class="download-link-button trim-restore-button"
+                type="button"
+                data-restore-trim-backup="{{ job.job_id }}"
+                data-trim-video-id="{{ job.video_id }}"
+                data-trim-video-title="{{ job.video_title }}"
+                data-trim-source-duration="{{ job.source_duration or 0 }}"
+                data-trim-output-duration="{{ job.output_duration or 0 }}"
+              >恢复原始视频</button>
+              <button
+                class="download-link-button download-delete-button"
+                type="button"
+                data-delete-trim-backup="{{ job.job_id }}"
+                data-trim-video-id="{{ job.video_id }}"
+                data-trim-video-title="{{ job.video_title }}"
+              >删除安全备份</button>
+              {% else %}
+              <span class="trim-action-disabled">备份不可用</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有符合条件的裁剪任务</h2>
+      <p>请调整查询条件，或从视频管理页面创建片头剪辑任务。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action=pager_action,
+      pager_params=pager_params,
+      pager_input_id="trim-job-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+  <script src="/static/video-trims.js?v=20261119-backups"></script>
+</body>
+</html>

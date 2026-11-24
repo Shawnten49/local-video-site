@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ "自动迁移" if mode == "auto" else "手动迁移" }} · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261116-migration-target-history">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/manage/migrations">返回迁移管理</a>
+    </div>
+  </header>
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">
+          {{ "AUTO ARCHIVE" if mode == "auto" else "MANUAL TRANSFER" }}
+        </p>
+        <h1>
+          {{ "自动迁移到外盘" if mode == "auto" else ("迁回本地" if direction == "to_local" else "手动迁移到外盘") }}
+        </h1>
+        <p class="stats">
+          {% if mode == "auto" %}
+          自动选择创建时间超过 {{ cutoff_days }} 天、当前位于本地且没有活动任务的视频。
+          {% elif direction == "to_local" %}
+          从已连接的外置盘复制视频到本地，复制和 SHA-256 校验完成后才删除外盘源文件。
+          {% else %}
+          从本地复制视频到外置盘，复制和 SHA-256 校验完成后才删除本地源文件。
+          {% endif %}
+        </p>
+      </div>
+    </section>
+
+    <div
+      id="migration-form"
+      class="management-form"
+      data-mode="{{ mode }}"
+      data-direction="{{ direction }}"
+      data-cutoff-days="{{ cutoff_days }}"
+    >
+      <section class="management-form-section">
+        <label for="migration-target">
+          {{ "本地目标目录" if direction == "to_local" else "外置盘目标目录" }}
+        </label>
+        <div class="management-input-row">
+          <input
+            id="migration-target"
+            name="destination_root"
+            type="text"
+            value="{{ default_target }}"
+            placeholder="/Volumes/VideoArchive/library"
+            required
+          >
+          <button id="browse-migration-target" class="download-policy-button" type="button">选择文件夹</button>
+        </div>
+        <p class="download-field-hint">
+          会保留视频相对目录结构。例如 download-hub/foo/a.mp4
+          会保存到“目标目录/download-hub/foo/a.mp4”。
+        </p>
+        <div id="migration-recent-targets" class="migration-recent-targets" hidden>
+          <div class="migration-recent-heading">
+            <span>最近目录</span>
+            <button
+              id="clear-recent-targets"
+              class="download-link-button"
+              type="button"
+            >清空历史</button>
+          </div>
+          <select id="recent-target-select" aria-label="选择最近使用的目录">
+            <option value="">从最近目录中选择…</option>
+          </select>
+          <div id="recent-target-chips" class="migration-recent-chips"></div>
+        </div>
+      </section>
+
+      {% if mode == "manual" %}
+      <section class="management-form-section">
+        <div class="management-selection-heading">
+          <strong>选择视频</strong>
+          <span id="selected-count">已选择 0 个</span>
+          <button id="clear-selected-videos" class="download-link-button" type="button">清空选择</button>
+        </div>
+        <form class="filters download-filters" method="get" action="/manage/migrations/new">
+          <input type="hidden" name="mode" value="{{ mode }}">
+          <input type="hidden" name="direction" value="{{ direction }}">
+          <input type="search" name="q" value="{{ query }}" placeholder="纯数字精确查视频 ID；其他内容搜索名称或路径">
+          <button type="submit">查询</button>
+          {% if query %}
+          <a class="category-button" href="/manage/migrations/new?mode={{ mode }}&direction={{ direction }}">清除</a>
+          {% endif %}
+        </form>
+        {% if candidates["items"] %}
+        <div class="download-table-wrap management-table-wrap">
+          <table class="download-table candidate-table">
+            <thead>
+              <tr>
+                <th class="candidate-select-heading">
+                  <button
+                    id="select-page-videos"
+                    class="download-link-button candidate-select-all"
+                    type="button"
+                    aria-pressed="false"
+                  >全选</button>
+                </th>
+                <th>ID</th>
+                <th>名称</th>
+                <th>大小</th>
+                <th>清晰度</th>
+                <th>当前路径</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for video in candidates["items"] %}
+              <tr>
+                <td>
+                  <input
+                    type="checkbox"
+                    data-select-video="{{ video.id }}"
+                    {% if video.id in selected_ids %}checked{% endif %}
+                  >
+                </td>
+                <td>#{{ video.id }}</td>
+                <td>{{ video.title }}</td>
+                <td>{{ video.size|filesize }}</td>
+                <td>{{ video.resolution if video.resolution else (video.width|resolution(video.height)) }}</td>
+                <td class="management-path-cell"><span title="{{ video.resolved_path }}">{{ video.resolved_path }}</span></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <section class="empty">
+          <h2>没有可迁移视频</h2>
+          <p>
+            {% if direction == "to_local" %}
+            请确认移动硬盘已经连接，并刷新页面。
+            {% else %}
+            当前没有符合条件的本地视频。
+            {% endif %}
+          </p>
+        </section>
+        {% endif %}
+        {% with
+          pagination=candidates,
+          pager_action="/manage/migrations/new",
+          pager_params={"mode": mode, "direction": direction, "q": query},
+          pager_input_id="candidate-page"
+        %}
+          {% include "_pagination.html" %}
+        {% endwith %}
+      </section>
+      {% else %}
+      <section class="management-form-section">
+        <div class="auto-migration-summary">
+          <strong>自动筛选规则</strong>
+          <ul>
+            <li>视频创建时间超过 {{ cutoff_days }} 天</li>
+            <li>视频当前位于受管理的本地目录</li>
+            <li>没有活动下载、重命名或迁移任务</li>
+            <li>元数据、缩略图和预览生成流程没有进行中任务</li>
+          </ul>
+        </div>
+      </section>
+      {% endif %}
+
+      <form
+        id="migration-submit-form"
+        class="management-form-section migration-submit-form"
+      >
+        <label for="migration-password">删除校验码</label>
+        <input
+          id="migration-password"
+          type="password"
+          autocomplete="current-password"
+          required
+        >
+        <p class="download-field-hint">创建迁移任务需要与删除视频相同的密码。</p>
+        <p id="migration-form-error" class="download-form-error" role="alert"></p>
+        <footer class="management-form-footer">
+          <a class="download-secondary-button" href="/manage/migrations">取消</a>
+          <button id="submit-migration" class="download-primary-button" type="submit">
+            {{ "创建自动迁移任务" if mode == "auto" else "保存迁移任务" }}
+          </button>
+        </footer>
+      </form>
+    </div>
+  </main>
+
+  <dialog id="directory-picker-dialog" class="management-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">DIRECTORY PICKER</p>
+          <h2>选择文件夹</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" data-close-directory-picker aria-label="关闭">×</button>
+      </header>
+      <p id="directory-current-path" class="management-picked-path"></p>
+      <div id="directory-list" class="directory-list"></div>
+      <p id="directory-picker-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button class="download-secondary-button" type="button" data-close-directory-picker>取消</button>
+        <button id="confirm-directory" class="download-primary-button" type="button">选择当前目录</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <script src="/static/migration-new.js?v=20261116-migration-target-history"></script>
+</body>
+</html>

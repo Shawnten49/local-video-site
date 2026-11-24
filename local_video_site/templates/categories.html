@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>分类 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/">返回</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="library-heading category-heading">
+      <div>
+        <p class="eyebrow">CATEGORIES</p>
+        <h1>分类</h1>
+        <p class="stats">
+          {% if page == 1 %}
+          {{ manual_categories|length }} 个人工标签 ·
+          {% endif %}
+          {{ data["total"] }} 个自动分类
+        </p>
+      </div>
+      <form class="search category-search" method="get" action="/categories">
+        <input type="search" name="q" value="{{ query }}" placeholder="搜索分类">
+        <button type="submit">搜索</button>
+      </form>
+    </section>
+
+    {% if page == 1 %}
+    <section class="manual-category-section">
+      <div class="manual-category-heading">
+        <div>
+          <h2>人工标签</h2>
+          <p>仅支持新增和删除，删除后无法恢复。</p>
+        </div>
+        <div class="manual-category-heading-actions">
+          <button id="add-manual-category" type="button">新增</button>
+          <button
+            id="toggle-manual-category-delete"
+            class="manual-category-delete-toggle"
+            type="button"
+            aria-pressed="false"
+          >删除</button>
+        </div>
+      </div>
+      <div id="manual-category-list" class="manual-category-list">
+        {% for category in manual_categories %}
+        <div class="manual-category-chip" data-manual-category-id="{{ category.id }}">
+          <a href="/manual-categories/{{ category.id }}">
+            <span>{{ category.name }}</span>
+            <small>{{ category.video_count }}</small>
+          </a>
+          <button
+            type="button"
+            data-delete-manual-category
+            data-category-name="{{ category.name }}"
+            data-video-count="{{ category.video_count }}"
+            aria-label="删除人工标签 {{ category.name }}"
+          >×</button>
+        </div>
+        {% else %}
+        <p class="manual-category-empty">还没有人工标签</p>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <div class="automatic-category-heading">
+      <h2>自动分类</h2>
+    </div>
+    {% if data["items"] %}
+    <section class="category-grid">
+      {% for category in data["items"] %}
+      <a class="category-card" href="/categories/{{ category.id }}">
+        <span class="category-name">{{ category.name }}</span>
+        <span class="category-count">{{ category.video_count }}</span>
+      </a>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有找到分类</h2>
+      <p>尝试其他关键词。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/categories",
+      pager_params={"q": query},
+      pager_input_id="category-page-jump"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  {% if page == 1 %}
+  <dialog id="manual-category-dialog" class="manual-category-dialog">
+    <form id="manual-category-form" class="manual-category-dialog-card">
+      <header>
+        <div>
+          <p class="eyebrow">MANUAL CATEGORY</p>
+          <h2>新增人工标签</h2>
+        </div>
+        <button type="button" data-close-manual-category aria-label="关闭">×</button>
+      </header>
+      <label for="manual-category-name">名称</label>
+      <input
+        id="manual-category-name"
+        type="text"
+        maxlength="50"
+        autocomplete="off"
+        required
+      >
+      <p id="manual-category-error" class="download-form-error"></p>
+      <footer>
+        <button type="button" class="cover-secondary-button" data-close-manual-category>取消</button>
+        <button id="save-manual-category" type="submit">添加</button>
+      </footer>
+    </form>
+  </dialog>
+  <dialog
+    id="manual-category-delete-dialog"
+    class="manual-category-dialog"
+    aria-labelledby="manual-category-delete-title"
+  >
+    <form id="manual-category-delete-form" class="manual-category-dialog-card">
+      <header>
+        <div>
+          <p class="eyebrow">DELETE MANUAL CATEGORY</p>
+          <h2 id="manual-category-delete-title">删除人工标签？</h2>
+        </div>
+        <button type="button" data-close-manual-category-delete aria-label="关闭">×</button>
+      </header>
+      <p id="manual-category-delete-description" class="manual-category-delete-description"></p>
+      <p class="manual-category-delete-warning">
+        删除后，视频上的人工标签关系也会移除。视频文件、自动分类和其他人工标签不会受到影响。
+        该操作不可撤销。
+      </p>
+      <p id="manual-category-delete-error" class="download-form-error"></p>
+      <footer>
+        <button type="button" class="cover-secondary-button" data-close-manual-category-delete>取消</button>
+        <button id="confirm-manual-category-delete" class="danger-button" type="submit">确认删除</button>
+      </footer>
+    </form>
+  </dialog>
+  <script src="/static/manual-categories.js"></script>
+  {% endif %}
+</body>
+</html>

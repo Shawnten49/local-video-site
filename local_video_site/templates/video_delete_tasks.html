@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频删除 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-series-delete">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">DELETE TASKS</p>
+        <h1>视频删除</h1>
+        <p class="stats">
+          任务 {{ data.total }} 个 ·
+          等待 {{ counts.pending }} ·
+          执行中 {{ counts.running }} ·
+          等待下级 {{ counts.blocked }} ·
+          成功 {{ counts.success }} ·
+          失败 {{ counts.failed }}
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <a class="download-policy-button" href="/manage/series">视频集管理</a>
+      </div>
+    </section>
+
+    <form class="filters download-filters" method="get" action="/manage/delete-tasks">
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查任务或目标 ID；其他内容搜索批次、名称或错误码"
+      >
+      <select name="scope_type">
+        <option value="">全部类型</option>
+        {% for value, label in scope_labels.items() %}
+        <option value="{{ value }}" {% if scope_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select name="status">
+        <option value="">全部状态</option>
+        {% for value, label in status_labels.items() %}
+        <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <select name="source_action">
+        <option value="">全部来源</option>
+        {% for value, label in source_labels.items() %}
+        <option value="{{ value }}" {% if source_action == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">查询</button>
+      {% if query or scope_type or status or source_action %}
+      <a class="category-button" href="/manage/delete-tasks">清除</a>
+      {% endif %}
+    </form>
+
+    {% if data["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table delete-jobs-table">
+        <thead>
+          <tr>
+            <th>任务 / 批次</th>
+            <th>类型</th>
+            <th>目标</th>
+            <th>来源</th>
+            <th>状态</th>
+            <th>进度</th>
+            <th>依赖</th>
+            <th>错误</th>
+            <th>时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in data["items"] %}
+          <tr
+            data-delete-task-row="{{ item.id }}"
+            data-delete-task-active="{{ 1 if item.status in ('pending','running','blocked') else 0 }}"
+          >
+            <td class="download-id">#{{ item.id }}<br><small>{{ item.batch_id }}</small></td>
+            <td>{{ item.scope_label }}</td>
+            <td>#{{ item.target_id }} · {{ item.target_name }}</td>
+            <td>{{ item.source_label }}</td>
+            <td>
+              <span class="migration-status status-{{ item.status }}" data-field="delete-status">{{ item.status_label }}</span>
+              <small data-field="delete-stage">{{ item.stage_label }}</small>
+            </td>
+            <td>
+              <div class="download-progress-track">
+                <span data-field="delete-progress" style="width: {{ item.progress_percent }}%"></span>
+              </div>
+            </td>
+            <td>{{ item.dependency_success }} / {{ item.dependency_count }}</td>
+            <td class="delete-job-error">
+              <span title="{{ item.error_detail or '' }}">{{ item.error_code or "—" }}</span>
+            </td>
+            <td class="download-time">
+              创建 {{ item.created_at }}
+              {% if item.finished_at %}<br>完成 {{ item.finished_at }}{% endif %}
+            </td>
+            <td class="management-actions">
+              {% if item.status in ("failed", "cancelled") %}
+              <button
+                class="download-link-button"
+                type="button"
+                data-retry-delete-job="{{ item.id }}"
+              >重试</button>
+              <button
+                class="download-link-button"
+                type="button"
+                data-retry-delete-batch="{{ item.batch_id }}"
+              >重试本批次失败项</button>
+              {% endif %}
+              {% if item.scope_type == "video" %}
+              <a class="download-link-button" href="/manage/videos?q={{ item.target_id }}">查看视频</a>
+              {% elif item.scope_type == "season" %}
+              <span class="muted">季 #{{ item.target_id }}</span>
+              {% else %}
+              <a class="download-link-button" href="/manage/series/{{ item.target_id }}">查看视频集</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有删除任务</h2>
+      <p>从视频管理、视频季或视频集页面发起删除后会显示在这里。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/manage/delete-tasks",
+      pager_params={"q": query, "scope_type": scope_type, "status": status, "source_action": source_action},
+      pager_input_id="delete-task-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  <script src="/static/delete-tasks.js?v=20261119-series-delete"></script>
+</body>
+</html>

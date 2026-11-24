@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>账号管理 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-admin-topbar">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="account-admin-page">
+    <section class="account-admin-hero">
+      <div>
+        <p class="eyebrow">ACCOUNT ADMIN</p>
+        <h1>账号管理</h1>
+        <p class="stats">管理登录权限、账号状态和密码。</p>
+      </div>
+      <div class="account-admin-summary">
+        <div>
+          <span>账号总数</span>
+          <strong>{{ users|length }}</strong>
+        </div>
+        <div>
+          <span>有效账号</span>
+          <strong>{{ users|selectattr("is_active")|list|length }}</strong>
+        </div>
+        <div>
+          <span>管理员</span>
+          <strong>{{ users|selectattr("role", "equalto", "admin")|list|length }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <div class="account-admin-layout">
+      <aside class="account-create-panel">
+        <div class="account-panel-heading">
+          <p class="eyebrow">NEW ACCOUNT</p>
+          <h2>创建账号</h2>
+          <p>新账号首次登录后需要修改初始密码。</p>
+        </div>
+        <form method="post" action="/manage/users/create" class="account-create-form">
+          <label>
+            <span>用户名</span>
+            <input name="username" autocomplete="off" required placeholder="例如 alice">
+          </label>
+          <label>
+            <span>初始密码</span>
+            <input
+              name="password"
+              type="password"
+              minlength="{{ min_password_length }}"
+              autocomplete="new-password"
+              required
+              placeholder="至少 {{ min_password_length }} 个字符"
+            >
+          </label>
+          <label>
+            <span>账号角色</span>
+            <select name="role">
+              <option value="user">一般用户</option>
+              <option value="admin">管理员</option>
+            </select>
+          </label>
+          <button class="download-primary-button" type="submit">创建账号</button>
+        </form>
+      </aside>
+
+      <section class="account-directory">
+        <div class="account-directory-heading">
+          <div>
+            <p class="eyebrow">ACCOUNT DIRECTORY</p>
+            <h2>账户列表</h2>
+          </div>
+          <span>{{ users|length }} 个账户</span>
+        </div>
+
+        <div class="account-user-list">
+          {% for user in users %}
+          <article class="account-user-card{% if not user.is_active %} is-inactive{% endif %}">
+            <header class="account-user-header">
+              <div class="account-user-identity">
+                <span class="account-user-avatar">{{ user.username[:1]|upper }}</span>
+                <div>
+                  <h3>{{ user.username }}</h3>
+                  <p>ID #{{ user.id }} · 创建于 {{ user.created_at[:10] }}</p>
+                </div>
+              </div>
+              <div class="account-user-badges">
+                <span class="account-role-badge role-{{ user.role }}">
+                  {{ "管理员" if user.role == "admin" else "一般用户" }}
+                </span>
+                <span class="account-state-badge {{ 'is-active' if user.is_active else 'is-disabled' }}">
+                  {{ "有效" if user.is_active else "已停用" }}
+                </span>
+              </div>
+            </header>
+
+            <dl class="account-user-meta">
+              <div>
+                <dt>最后登录</dt>
+                <dd>{{ (user.last_login_at or "—")|replace("T", " ")|truncate(19, True, "") }}</dd>
+              </div>
+              <div>
+                <dt>密码状态</dt>
+                <dd>{{ "首次登录需修改" if user.must_change_password else "正常" }}</dd>
+              </div>
+            </dl>
+
+            <div class="account-control-grid">
+              <form method="post" action="/manage/users/{{ user.id }}/role" class="account-control">
+                <label for="role-{{ user.id }}">角色权限</label>
+                <div>
+                  <select id="role-{{ user.id }}" name="role">
+                    <option value="user" {% if user.role == "user" %}selected{% endif %}>一般用户</option>
+                    <option value="admin" {% if user.role == "admin" %}selected{% endif %}>管理员</option>
+                  </select>
+                  <button class="download-secondary-button" type="submit">保存</button>
+                </div>
+              </form>
+
+              <form method="post" action="/manage/users/{{ user.id }}/toggle" class="account-control">
+                <span>账号状态</span>
+                <button
+                  class="download-secondary-button {% if user.is_active %}account-danger-button{% else %}account-enable-button{% endif %}"
+                  type="submit"
+                >{{ "停用账号" if user.is_active else "重新启用" }}</button>
+              </form>
+
+              <form method="post" action="/manage/users/{{ user.id }}/reset-password" class="account-control account-password-control">
+                <label for="password-{{ user.id }}">重置密码</label>
+                <div>
+                  <input
+                    id="password-{{ user.id }}"
+                    name="password"
+                    type="password"
+                    minlength="{{ min_password_length }}"
+                    autocomplete="new-password"
+                    placeholder="至少 {{ min_password_length }} 个字符"
+                    required
+                  >
+                  <button class="download-secondary-button" type="submit">重置</button>
+                </div>
+              </form>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

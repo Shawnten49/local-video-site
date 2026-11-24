@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>批量下载 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261120-source-check">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/downloads">返回下载管理</a>
+    </div>
+  </header>
+
+  <main class="episode-batch-page">
+    <section class="library-heading episode-batch-heading">
+      <div>
+        <p class="eyebrow">EPISODE BATCH</p>
+        <h1>批量下载</h1>
+        <p class="stats">输入任意剧集地址或季地址，解析整季后先人工检查，再生成下载任务。</p>
+      </div>
+    </section>
+
+    <form id="episode-batch-form" class="episode-batch-form">
+      <div class="episode-batch-fields">
+        <label>
+          <span>视频集合名</span>
+          <input id="episode-series-name" name="series_name" required placeholder="老友记">
+        </label>
+        <label>
+          <span>视频季名</span>
+          <input id="episode-season-name" name="season_name" required placeholder="第一季">
+        </label>
+        <label>
+          <span>季序号</span>
+          <input id="episode-season-number" name="season_number" type="number" min="1" value="1" required>
+        </label>
+      </div>
+      {% if is_admin %}
+      <label class="episode-batch-option" for="episode-allow-source-mismatch">
+        <input id="episode-allow-source-mismatch" type="checkbox">
+        <span>
+          <strong>允许来源与目标视频集不同</strong>
+          <small>
+            仅当确实需要自定义目标视频集时勾选，避免把其他番剧误加入当前视频集。
+          </small>
+        </span>
+      </label>
+      {% endif %}
+      <label>
+        <span>剧集或季 URL</span>
+        <input
+          id="episode-first-url"
+          name="first_episode_url"
+          type="url"
+          required
+          placeholder="https://www.bilibili.com/bangumi/play/ss... 或 .../ep..."
+        >
+      </label>
+      <div class="episode-batch-options">
+        <label class="episode-batch-option" for="episode-continuous-parse">
+          <input id="episode-continuous-parse" type="checkbox">
+          <span>
+            <strong>连续解析全部选集 Tab</strong>
+            <small>会读取同一系列的全部分页或季 Tab，耗时可能较长。</small>
+          </span>
+        </label>
+        <label
+          id="episode-aggregate-option"
+          class="episode-batch-option is-disabled"
+          for="episode-aggregate-single-season"
+        >
+          <input
+            id="episode-aggregate-single-season"
+            type="checkbox"
+            disabled
+          >
+          <span>
+            <strong>汇总成单季</strong>
+            <small>将全部 Tab 的视频按顺序合并到目标季并连续编号。</small>
+          </span>
+        </label>
+        <label
+          id="episode-preserve-original-option"
+          class="episode-batch-option is-disabled"
+          for="episode-preserve-original-name"
+        >
+          <input
+            id="episode-preserve-original-name"
+            type="checkbox"
+            disabled
+          >
+          <span>
+            <strong>保留原始名称</strong>
+            <small>文件名使用影片或分集标题，内部集数和播放顺序保持不变。</small>
+          </span>
+        </label>
+      </div>
+      <p id="episode-batch-mode-hint" class="download-field-hint">
+        当前仅解析输入地址所在的选集。季名和季序号使用上方填写值。
+      </p>
+      <label>
+        <span>保存根目录</span>
+        <input
+          id="episode-output-root"
+          name="output_root"
+          type="text"
+          value="{{ default_download_dir }}"
+          required
+          {% if not is_admin %}readonly{% endif %}
+        >
+      </label>
+      <label>
+        <span>清晰度</span>
+        <select id="episode-quality" name="quality">
+          <option value="site" selected>跟随站点策略</option>
+          <option value="auto">自动（最高 1080p）</option>
+          <option value="2160p">4K 优先（最高 2160p）</option>
+          <option value="1080p">1080p</option>
+          <option value="720p">720p</option>
+          <option value="480p">480p</option>
+          <option value="360p">360p</option>
+        </select>
+      </label>
+      <label>
+        <span>视频访问级别</span>
+        <select id="episode-access-level" name="access_level">
+          {% for level in allowed_access_levels %}
+          <option value="{{ level }}" {% if level == 0 %}selected{% endif %}>
+            {{ level }} · {{ access_level_labels[level] }}
+          </option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="episode-batch-actions">
+        <a class="download-secondary-button" href="/downloads">取消</a>
+        <button id="discover-episode-batch" class="download-primary-button" type="submit">
+          解析并预览
+        </button>
+      </div>
+      <p id="episode-batch-error" class="download-form-error" role="alert"></p>
+    </form>
+
+    <section id="episode-preview-section" class="episode-preview-section" hidden>
+      <div class="episode-preview-heading">
+        <div>
+          <p class="eyebrow">MANUAL REVIEW</p>
+          <h2 id="episode-preview-title">剧集预览</h2>
+          <p id="episode-preview-summary" class="stats"></p>
+        </div>
+        <div class="episode-preview-actions">
+          <label class="episode-select-all">
+            <input id="episode-preview-select-all" type="checkbox">
+            全选可下载视频
+          </label>
+          <button id="confirm-episode-batch" class="download-primary-button" type="button">
+            确认批量生成下载任务
+          </button>
+        </div>
+      </div>
+      <p id="episode-preview-warning" class="episode-preview-warning" hidden></p>
+      <div class="download-table-wrap">
+        <table class="download-table episode-preview-table">
+          <thead>
+            <tr>
+              <th>选择</th>
+              <th>集数</th>
+              <th>Tab 内名称</th>
+              <th>标题 / 文件名</th>
+              <th>原集数</th>
+              <th>相对路径</th>
+              <th>来源 URL</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody id="episode-preview-rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script src="/static/batch-download.js?v=20261120-source-check" defer></script>
+</body>
+</html>

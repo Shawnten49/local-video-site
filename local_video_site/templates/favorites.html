@@ -1,0 +1,78 @@
+<!doctype html>
+{% from "_video_thumb.html" import video_thumb %}
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>我的收藏 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/">返回</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="library-heading">
+      <div>
+        <p class="eyebrow">MY FAVORITES</p>
+        <h1>我的收藏</h1>
+        <p class="stats">{{ data["total"] }} 部已收藏视频</p>
+      </div>
+      <form class="filters" method="get" action="/favorites">
+        <select name="sort" aria-label="排序">
+          <option value="favorited" {% if sort == 'favorited' %}selected{% endif %}>最近收藏</option>
+          <option value="name" {% if sort == 'name' %}selected{% endif %}>名称</option>
+          <option value="duration" {% if sort == 'duration' %}selected{% endif %}>时长</option>
+          <option value="recent" {% if sort == 'recent' %}selected{% endif %}>最近更新</option>
+        </select>
+        <button type="submit">应用</button>
+      </form>
+    </section>
+
+    {% if data["items"] %}
+    <section class="video-grid">
+      {% for video in data["items"] %}
+      <article class="video-card favorite-card">
+        <a class="favorite-card-link" href="/watch/{{ video.id }}?return_to={{ return_to|urlencode }}">
+          {{ video_thumb(video) }}
+          <div class="card-body">
+            <h2 title="{{ video.title }}">{{ video.title }}</h2>
+            <p>{{ video.directory }} · {{ video.size|filesize }}</p>
+          </div>
+        </a>
+        <form
+          class="favorite-card-remove"
+          method="post"
+          action="/favorites/{{ video.id }}/remove?redirect_to={{ return_to|urlencode }}"
+        >
+          <button type="submit">取消收藏</button>
+        </form>
+      </article>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>还没有收藏的视频</h2>
+      <p>打开视频详情页，点击“添加收藏”。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/favorites",
+      pager_params={"sort": sort},
+      pager_input_id="favorite-page-jump"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+  <script src="/static/hover-preview.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ season.series_name }} · {{ season.display_name or season.name }}</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261120-episode-edit">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">SEASON EPISODES</p>
+        <h1>{{ season.series_name }} · {{ season.display_name or season.name }}</h1>
+        <p class="stats">
+          视频季 #{{ season.id }} · 第 {{ season.season_number }} 季 ·
+          {{ data.total }} 个剧集条目
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <a
+          class="download-policy-button"
+          href="/manage/series/{{ series_id }}"
+        >返回季列表</a>
+      </div>
+    </section>
+
+    <form
+      class="filters download-filters"
+      method="get"
+      action="/manage/series/{{ series_id }}/seasons/{{ season.id }}"
+    >
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查视频 ID；其他内容搜索标题、集名或路径"
+      >
+      <select name="record_state" aria-label="记录状态">
+        <option value="all" {% if record_state == "all" %}selected{% endif %}>全部记录</option>
+        <option value="active" {% if record_state == "active" %}selected{% endif %}>有效记录</option>
+        <option value="deleted" {% if record_state == "deleted" %}selected{% endif %}>已删除</option>
+      </select>
+      <button type="submit">查询</button>
+      {% if query or record_state != "all" %}
+      <a
+        class="category-button"
+        href="/manage/series/{{ series_id }}/seasons/{{ season.id }}"
+      >清除</a>
+      {% endif %}
+    </form>
+
+    {% if data["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table video-season-detail-table">
+        <thead>
+          <tr>
+            <th>集数</th>
+            <th>视频 ID / 标题</th>
+            <th>剧集标题</th>
+            <th>大小</th>
+            <th>清晰度</th>
+            <th>时长</th>
+            <th>编码</th>
+            <th>记录状态</th>
+            <th>存储状态</th>
+            <th>访问级别</th>
+            <th>路径</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in data["items"] %}
+          <tr{% if item.is_deleted %} class="video-record-row is-deleted"{% endif %}>
+            <td><strong>{{ "%02d"|format(item.episode_number) }}</strong></td>
+            <td>
+              {% if item.video_id %}
+              <a href="/manage/videos?q={{ item.video_id }}">
+                #{{ item.video_id }} {{ item.video_title or "未命名视频" }}
+              </a>
+              {% else %}
+              <span>计划条目</span>
+              {% endif %}
+            </td>
+            <td class="episode-title-cell">{{ item.episode_title or "—" }}</td>
+            <td>{{ item.size|filesize if item.size else "—" }}</td>
+            <td>{{ item.width|resolution(item.height) if item.video_id else "—" }}</td>
+            <td>{{ item.duration|duration if item.duration else "—" }}</td>
+            <td>
+              {% if item.video_id %}
+              {{ item.video_codec or "未知" }} / {{ item.audio_codec or "未知" }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if item.is_deleted %}
+              <span class="video-record-badge is-deleted">已删除</span>
+              <small class="video-deleted-at">{{ item.deleted_at or "删除时间未知" }}</small>
+              {% elif not item.video_id %}
+              <span class="video-record-badge">计划条目</span>
+              {% else %}
+              <span class="video-record-badge is-active">正常</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if item.is_deleted %}
+              记录已删除
+              {% elif not item.video_id %}
+              无视频
+              {% elif item.missing %}
+              文件缺失
+              {% elif item.storage_volume_id and item.storage_online_state == "offline" %}
+              外置盘离线
+              {% elif item.storage_volume_id %}
+              外置盘在线
+              {% else %}
+              本地
+              {% endif %}
+            </td>
+            <td>{{ item.access_level if item.access_level is not none else "—" }}</td>
+            <td class="management-path-cell">
+              <span title="{{ item.video_path or item.absolute_path }}">
+                {{ item.video_path or item.absolute_path }}
+              </span>
+            </td>
+            <td class="management-actions">
+              <button
+                class="download-link-button episode-edit-button"
+                type="button"
+                data-edit-episode="{{ item.episode_id }}"
+                data-edit-series="{{ series_id }}"
+                data-edit-season="{{ season.id }}"
+                data-edit-episode-number="{{ item.episode_number }}"
+                data-edit-episode-title="{{ item.episode_title or '' }}"
+                data-edit-episode-updated-at="{{ item.episode_updated_at or '' }}"
+                data-edit-video-label="#{{ item.video_id or '' }} {{ item.video_title or '无视频' }}"
+              >修改数据</button>
+              {% if item.is_deleted %}
+              <button
+                class="download-link-button video-restore-button"
+                type="button"
+                data-restore-video="{{ item.video_id }}"
+                data-restore-episode="{{ item.episode_id }}"
+                data-restore-title="{{ item.video_title or item.episode_title or item.display_title }}"
+                data-restore-episode-label="第 {{ item.episode_number }} 集"
+                data-restore-original-path="{{ item.video_path or item.absolute_path }}"
+                data-restore-updated-at="{{ item.updated_at or '' }}"
+              >重新上线</button>
+              {% elif item.video_id %}
+              <a class="download-link-button" href="/watch/{{ item.video_id }}">播放</a>
+              <a class="download-link-button" href="/manage/videos?q={{ item.video_id }}">管理视频</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有剧集条目</h2>
+      <p>当前季下没有符合查询条件的数据。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/manage/series/" ~ series_id ~ "/seasons/" ~ season.id,
+      pager_params={"q": query, "record_state": record_state},
+      pager_input_id="season-video-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  <dialog id="video-restore-dialog" class="management-dialog video-restore-dialog">
+    <form id="video-restore-form" class="management-dialog-card">
+      <header class="series-edit-header">
+        <div>
+          <p class="eyebrow">RESTORE VIDEO</p>
+          <h2>重新上线视频</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          aria-label="关闭"
+          data-cancel-video-restore
+        >×</button>
+      </header>
+      <dl class="management-detail-list">
+        <div><dt>剧集</dt><dd id="video-restore-episode"></dd></div>
+        <div><dt>视频</dt><dd id="video-restore-title"></dd></div>
+        <div><dt>原路径</dt><dd id="video-restore-original-path"></dd></div>
+      </dl>
+      <label class="series-edit-field" for="video-restore-scope">
+        文件来源
+        <select id="video-restore-scope">
+          <option value="local">本地视频目录</option>
+          <option value="external">外置存储</option>
+        </select>
+      </label>
+      <div class="video-restore-path-row">
+        <label class="series-edit-field" for="video-restore-path">
+          视频文件路径
+          <input id="video-restore-path" type="text" required>
+        </label>
+        <button id="video-restore-browse" class="download-policy-button" type="button">
+          选择文件
+        </button>
+      </div>
+      <button id="video-restore-original" class="download-secondary-button" type="button">
+        使用原路径
+      </button>
+      <div id="video-restore-browser" class="video-restore-browser" hidden>
+        <div id="video-restore-browser-path" class="management-picked-path"></div>
+        <div id="video-restore-browser-list" class="directory-list"></div>
+      </div>
+      <div id="video-restore-preview" class="video-restore-preview" hidden></div>
+      <p id="video-restore-error" class="download-form-error" role="alert"></p>
+      <footer class="series-edit-actions">
+        <button class="cover-secondary-button" type="button" data-cancel-video-restore>取消</button>
+        <button id="video-restore-submit" class="download-primary-button" type="submit">
+          确认重新上线
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="episode-edit-dialog" class="management-dialog episode-edit-dialog">
+    <form id="episode-edit-form" class="management-dialog-card">
+      <header class="series-edit-header">
+        <div>
+          <p class="eyebrow">EDIT EPISODE</p>
+          <h2>修改剧集数据</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          aria-label="关闭"
+          data-cancel-episode-edit
+        >×</button>
+      </header>
+      <dl class="series-edit-source">
+        <div><dt>集数</dt><dd id="episode-edit-number"></dd></div>
+        <div><dt>视频</dt><dd id="episode-edit-video"></dd></div>
+        <div><dt>当前标题</dt><dd id="episode-edit-current"></dd></div>
+      </dl>
+      <label class="series-edit-field" for="episode-edit-title">
+        剧集标题
+        <input
+          id="episode-edit-title"
+          type="text"
+          maxlength="200"
+          autocomplete="off"
+          required
+        >
+      </label>
+      <p class="series-edit-hint">
+        只修改剧集标题，不改变视频标题、文件名、路径、原始网页地址和访问级别。
+      </p>
+      <p id="episode-edit-error" class="download-form-error" role="alert"></p>
+      <footer class="series-edit-actions">
+        <button class="cover-secondary-button" type="button" data-cancel-episode-edit>取消</button>
+        <button id="episode-edit-submit" class="download-primary-button" type="submit">
+          保存修改
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/static/season-video-restore.js?v=20261120-source-fingerprint"></script>
+  <script src="/static/season-video-edit.js?v=20261120-episode-title"></script>
+</body>
+</html>

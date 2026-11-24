@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频管理 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-format-dialog">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">VIDEO MANAGEMENT</p>
+        <h1>视频管理</h1>
+        <p class="stats">
+          共 {{ data["total"] }} 个视频 ·
+          有效 {{ data["active_count"] }} ·
+          已删除 {{ data["deleted_count"] }} ·
+          第 {{ data["page"] }}/{{ data["pages"] }} 页
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <button
+          id="refresh-storage-state"
+          class="download-policy-button"
+          type="button"
+        >刷新外盘状态</button>
+        <a class="download-policy-button" href="/manage/videos/external-scan">
+          扫描外盘视频
+        </a>
+        <a class="download-policy-button" href="/manage/videos/trims">
+          视频裁剪
+        </a>
+        <a class="download-policy-button" href="/manage/migrations">
+          迁移管理
+        </a>
+      </div>
+    </section>
+
+    <form class="filters download-filters" method="get" action="/manage/videos">
+      <input type="search" name="q" value="{{ query }}" placeholder="纯数字精确查视频 ID；其他内容搜索名称、路径或来源地址">
+      <select name="storage" aria-label="存储状态">
+        <option value="">全部存储状态</option>
+        <option value="local" {% if storage == "local" %}selected{% endif %}>本地</option>
+        <option value="external" {% if storage == "external" %}selected{% endif %}>外置盘</option>
+        <option value="external_online" {% if storage == "external_online" %}selected{% endif %}>外置盘在线</option>
+        <option value="external_offline" {% if storage == "external_offline" %}selected{% endif %}>外置盘离线</option>
+        <option value="file_missing" {% if storage == "file_missing" %}selected{% endif %}>文件缺失</option>
+        <option value="migrating" {% if storage == "migrating" %}selected{% endif %}>迁移中</option>
+        <option value="deleted" {% if storage == "deleted" %}selected{% endif %}>已删除</option>
+      </select>
+      <select name="record_state" aria-label="记录状态">
+        <option value="active" {% if record_state == "active" %}selected{% endif %}>有效记录</option>
+        <option value="deleted" {% if record_state == "deleted" %}selected{% endif %}>已删除记录</option>
+        <option value="all" {% if record_state == "all" %}selected{% endif %}>全部记录</option>
+      </select>
+      <select name="access_level" aria-label="访问级别">
+        <option value="">全部访问级别</option>
+        {% for level in access_levels %}
+        <option value="{{ level }}" {% if access_level == level|string %}selected{% endif %}>
+          {{ level }} · {{ access_level_labels[level] }}
+        </option>
+        {% endfor %}
+      </select>
+      <button type="submit">查询</button>
+      {% if query or storage or record_state != "all" or access_level %}
+      <a class="category-button" href="/manage/videos">清除</a>
+      {% endif %}
+    </form>
+
+    {% if data["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table management-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>名称</th>
+            <th>大小</th>
+            <th>清晰度</th>
+            <th>时长</th>
+            <th>存储状态</th>
+            <th>访问级别</th>
+            <th>完整路径</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for video in data["items"] %}
+          <tr data-video-row="{{ video.id }}">
+            <td class="download-id">#{{ video.id }}</td>
+            <td class="management-title-cell">
+              <a href="/watch/{{ video.id }}?return_to={{ request.url.path|urlencode }}" target="_blank" rel="noopener">
+                {{ video.title }}
+              </a>
+              <small>{{ video.file_name }} · {{ video.directory }}</small>
+            </td>
+            <td>{{ video.size|filesize }}</td>
+            <td>{{ video.quality_label }}</td>
+            <td>{{ video.duration|duration }}</td>
+            <td>
+              <span class="storage-badge storage-{{ video.storage_state }}">{{ video.storage_state_label }}</span>
+            </td>
+            <td class="management-access-cell">
+              <select data-access-level="{{ video.id }}" aria-label="访问级别">
+                {% for level in access_levels %}
+                <option value="{{ level }}" {% if video.access_level == level %}selected{% endif %}>
+                  {{ level }} · {{ access_level_labels[level] }}
+                </option>
+                {% endfor %}
+              </select>
+              <button
+                type="button"
+                class="download-link-button"
+                data-save-access-level="{{ video.id }}"
+              >保存</button>
+            </td>
+            <td class="management-path-cell">
+              <span title="{{ video.resolved_path }}">{{ video.resolved_path }}</span>
+            </td>
+            <td class="download-time">{{ video.created_at }}</td>
+            <td class="management-actions">
+              <button
+                type="button"
+                class="download-link-button"
+                data-view-video="{{ video.id }}"
+              >查看</button>
+              {% if not video.is_deleted and video.extension in (".mkv", ".rmvb", ".rm") %}
+              <button
+                type="button"
+                class="download-link-button"
+                data-format-mp4="{{ video.id }}"
+                data-format-title="{{ video.title }}"
+                data-format-path="{{ video.resolved_path }}"
+                data-format-codecs="{{ video.video_codec or 'unknown' }} / {{ video.audio_codec or 'unknown' }}"
+                data-format-extension="{{ video.extension }}"
+                data-format-remux-supported="{{ 1 if video.extension == '.mkv' else 0 }}"
+                {% if video.active_format_job_id or video.storage_state in ("migrating", "file_missing", "external_offline") %}disabled{% endif %}
+              >
+                {% if video.active_format_job_status == "running" %}
+                  {{ "转译中" if video.extension in (".rmvb", ".rm") else "封装中" }}
+                {% elif video.active_format_job_id %}已入队
+                {% elif video.extension in (".rmvb", ".rm") %}转译 MP4
+                {% else %}封装 MP4{% endif %}
+              </button>
+              {% endif %}
+              {% if not video.is_deleted %}
+              <button
+                type="button"
+                class="download-link-button"
+                data-edit-video="{{ video.id }}"
+              >修改</button>
+              <button
+                type="button"
+                class="download-link-button"
+                data-trim-video="{{ video.id }}"
+                {% if video.storage_state in ("migrating", "file_missing", "external_offline") %}disabled{% endif %}
+              >片头剪辑</button>
+              {% endif %}
+              {% if not video.is_deleted and video.storage_volume_id is not none and video.storage_online and video.storage_state != "migrating" %}
+              <a
+                class="download-link-button"
+                href="/manage/migrations/new?mode=manual&direction=to_local&video_id={{ video.id }}"
+              >迁回本地</a>
+              {% endif %}
+              {% if not video.is_deleted %}
+              <button
+                type="button"
+                class="download-link-button download-delete-button"
+                data-delete-managed-video="{{ video.id }}"
+                data-video-title="{{ video.title }}"
+                {% if video.storage_state == "migrating" %}disabled{% endif %}
+              >删除视频</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有符合条件的视频</h2>
+      <p>调整查询条件后重试。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action=pager_action,
+      pager_params=pager_params,
+      pager_input_id="manage-video-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  <dialog id="video-detail-dialog" class="management-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">VIDEO DETAIL</p>
+          <h2 id="video-detail-title">视频属性</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" data-close-video-detail aria-label="关闭">×</button>
+      </header>
+      <div id="video-detail-content" class="management-detail-content"></div>
+      <p id="video-detail-error" class="download-form-error"></p>
+    </div>
+  </dialog>
+
+  <dialog id="edit-video-dialog" class="management-dialog edit-video-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">EDIT VIDEO</p>
+          <h2 id="edit-video-dialog-title">修改视频</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-edit-video
+          aria-label="关闭"
+        >×</button>
+      </header>
+
+      <section class="edit-video-section">
+        <div>
+          <h3>展示标题</h3>
+          <p>只修改网站和播放页中显示的标题，不修改实际文件名。</p>
+        </div>
+        <form id="edit-display-title-form" class="edit-video-form">
+          <label for="edit-display-title-input">展示标题</label>
+          <input
+            id="edit-display-title-input"
+            type="text"
+            maxlength="200"
+            required
+            autocomplete="off"
+          >
+          <div class="edit-video-actions">
+            <button
+              id="restore-default-display-title"
+              class="download-secondary-button"
+              type="button"
+            >恢复默认</button>
+            <button
+              id="save-display-title"
+              class="download-primary-button"
+              type="submit"
+            >保存展示标题</button>
+          </div>
+          <p id="edit-display-title-error" class="download-form-error"></p>
+        </form>
+      </section>
+
+      <section class="edit-video-section">
+        <div>
+          <h3>文件名称</h3>
+          <p>只修改实际存储文件，展示标题保持不变。</p>
+        </div>
+        <form id="edit-file-name-form" class="edit-video-form">
+          <label for="edit-file-name-input">文件名称</label>
+          <div class="rename-video-input-row">
+            <input
+              id="edit-file-name-input"
+              type="text"
+              maxlength="180"
+              required
+              autocomplete="off"
+            >
+            <span id="edit-file-extension"></span>
+          </div>
+          <p class="edit-video-path">
+            <span>当前路径</span>
+            <code id="edit-file-current-path"></code>
+          </p>
+          <p id="edit-file-name-hint" class="download-field-hint"></p>
+          <div class="edit-video-actions">
+            <button
+              id="save-file-name"
+              class="download-primary-button"
+              type="submit"
+            >保存文件名</button>
+          </div>
+          <p id="edit-file-name-error" class="download-form-error"></p>
+        </form>
+      </section>
+
+      <section class="edit-video-section">
+        <div>
+          <h3>访问级别</h3>
+          <p>控制哪些用户可以看到该视频。修改季集视频时会同步当前季的全部集数。</p>
+        </div>
+        <form id="edit-access-level-form" class="edit-video-form">
+          <label for="edit-access-level-select">访问级别</label>
+          <select id="edit-access-level-select">
+            {% for level in access_levels %}
+            <option value="{{ level }}">
+              {{ level }} · {{ access_level_labels[level] }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="edit-video-actions">
+            <button
+              id="save-edit-access-level"
+              class="download-primary-button"
+              type="submit"
+            >保存访问级别</button>
+          </div>
+          <p id="edit-access-level-error" class="download-form-error"></p>
+        </form>
+      </section>
+
+      <div class="edit-video-readonly">
+        <span>原始网页地址</span>
+        <code id="edit-original-url"></code>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="trim-video-dialog" class="management-dialog trim-video-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">TRIM INTRO</p>
+          <h2 id="trim-video-title">片头剪辑</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-trim-video
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <form id="trim-video-form" class="edit-video-form">
+        <label for="trim-start-input">片头结束时间（秒或 HH:MM:SS）</label>
+        <div class="trim-input-row">
+          <input
+            id="trim-start-input"
+            type="text"
+            inputmode="decimal"
+            placeholder="例如 20 或 00:00:20"
+            required
+          >
+          <button id="analyze-trim" class="download-secondary-button" type="button">
+            分析关键帧
+          </button>
+        </div>
+        <div id="trim-analysis" class="trim-analysis" hidden>
+          <p class="stats" id="trim-analysis-summary"></p>
+          <fieldset class="trim-mode-list">
+            <legend>剪辑方式</legend>
+            <label>
+              <input type="radio" name="trim-mode" value="after_keyframe" checked>
+              <span>
+                <strong>去掉广告优先（推荐）</strong>
+                <small id="trim-after-keyframe-hint"></small>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="trim-mode" value="before_keyframe">
+              <span>
+                <strong>保留正片优先</strong>
+                <small id="trim-before-keyframe-hint"></small>
+              </span>
+            </label>
+            <label>
+              <input type="radio" name="trim-mode" value="precise">
+              <span>
+                <strong>精确剪切</strong>
+                <small>严格从输入时间开始，但需要重新编码剩余视频。</small>
+              </span>
+            </label>
+          </fieldset>
+        </div>
+        <div id="trim-progress-wrap" class="trim-progress-wrap" hidden>
+          <progress id="trim-progress" max="100" value="0"></progress>
+          <span id="trim-progress-text">等待开始</span>
+        </div>
+        <p id="trim-video-error" class="download-form-error" role="alert"></p>
+        <div class="edit-video-actions">
+          <button class="download-secondary-button" type="button" data-close-trim-video>
+            取消
+          </button>
+          <button id="start-trim-video" class="download-primary-button" type="submit" disabled>
+            开始剪辑
+          </button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog id="format-mp4-dialog" class="management-dialog format-mp4-dialog">
+    <form id="format-mp4-form" class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">MKV FORMAT CONVERSION</p>
+          <h2>封装 MP4</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" data-close-format-mp4 aria-label="关闭">×</button>
+      </header>
+
+      <section class="format-mp4-summary">
+        <strong id="format-mp4-title">MKV 视频</strong>
+        <span id="format-mp4-path"></span>
+        <small id="format-mp4-codecs"></small>
+      </section>
+
+      <fieldset class="format-mp4-methods">
+        <legend>封装方式</legend>
+        <label class="format-mp4-method">
+          <input type="radio" name="format-operation" value="container_remux" checked>
+          <span>
+            <strong>容器封装</strong>
+            <small>不修改音频源和视频源，耗时短，无损操作。</small>
+            <code>-c copy</code>
+          </span>
+        </label>
+        <label class="format-mp4-method is-danger">
+          <input type="radio" name="format-operation" value="standard_transcode">
+          <span>
+            <strong>编码转译</strong>
+            <small>重新编码为 H.264 + AAC 标准 MP4，耗时长，有损操作。</small>
+            <code>libx264 + AAC</code>
+          </span>
+        </label>
+      </fieldset>
+
+      <p id="format-mp4-warning" class="format-mp4-warning" hidden>
+        编码转译会重新编码视频和音频，画质和音质可能发生变化，处理时间较长。
+      </p>
+      <p id="format-mp4-error" class="download-form-error" role="alert"></p>
+
+      <footer class="edit-video-actions">
+        <button class="download-secondary-button" type="button" data-close-format-mp4>
+          取消
+        </button>
+        <button id="confirm-format-mp4" class="download-primary-button" type="submit">
+          确认创建容器封装任务
+        </button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="managed-delete-dialog" class="delete-dialog">
+    <div class="delete-dialog-card">
+      <section id="managed-delete-confirm-step">
+        <p class="eyebrow">DANGER ZONE</p>
+        <h2>删除视频</h2>
+        <div class="delete-warning">将删除当前视频文件、封面和预览文件；数据库记录保留为已删除状态，收藏和分类关联用于审计保留。</div>
+        <p class="delete-video-info"><strong id="managed-delete-title"></strong></p>
+        <div class="delete-dialog-actions">
+          <button class="cover-secondary-button" type="button" data-cancel-managed-delete>取消</button>
+          <button class="danger-button" type="button" data-continue-managed-delete>继续删除</button>
+        </div>
+      </section>
+      <form id="managed-delete-form" hidden>
+        <p class="eyebrow">FINAL CONFIRMATION</p>
+        <label class="delete-password-label" for="managed-delete-password">删除校验码</label>
+        <input id="managed-delete-password" type="password" autocomplete="current-password" required>
+        <p id="managed-delete-error" class="delete-error"></p>
+        <div class="delete-dialog-actions">
+          <button class="cover-secondary-button" type="button" data-cancel-managed-delete>取消</button>
+          <button id="managed-delete-submit" class="danger-button" type="submit" disabled>确认删除</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <script src="/static/manage-videos.js?v=20261119-format-rmvb"></script>
+</body>
+</html>

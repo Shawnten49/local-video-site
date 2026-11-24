@@ -1,0 +1,91 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local media and downloaded resources
+download/
+download-full/
+download-hub/
+download-other/
+download-import/
+*.mp4
+*.m4v
+*.mkv
+*.webm
+*.mov
+*.avi
+*.part
+*.ytdl
+*.range.json
+*.resume.json
+
+# Thumbnails, covers, previews and other generated media
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.gif
+*.avif
+
+# Runtime data, logs and credentials
+local_video_site/data/
+data/
+logs/
+outputs/
+work/
+*.log
+*.log.*
+*.lock
+*.pid
+*.tmp
+*.bak
+*.orig
+*.rej
+.delete-password
+.lan-token
+
+# Browser automation and profiles
+.chrome-cdp-profile/
+.chrome-cdp-category-profile/
+.chrome-cdp-*/
+
+# User-provided URL lists
+urls*.txt
+!urls.example.txt
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.keystore
+*.har
+*.cookies
+*.trace
+
+# Android / Gradle build outputs
+.gradle/
+**/.gradle/
+**/build/
+**/local.properties
+*.apk
+*.aab
+.kotlin/
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>导入外部视频 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261116-import-access-layout">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/manage/migrations">返回迁移管理</a>
+    </div>
+  </header>
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">EXTERNAL VIDEO IMPORT</p>
+        <h1>导入外部视频</h1>
+        <p class="stats">
+          将外盘中尚未入库的视频复制到本地，校验成功后加入视频库。
+          导入的视频初始不会生成分类和演员信息。
+        </p>
+      </div>
+    </section>
+
+    <div id="external-import-form" class="management-form external-import-form">
+      <div class="external-import-path-grid">
+        <section class="management-form-section external-import-source-panel">
+          <div class="external-import-section-heading">
+            <div>
+              <p class="eyebrow">SOURCE</p>
+              <h2>外盘来源</h2>
+            </div>
+            <span class="external-import-step">1</span>
+          </div>
+          <label for="import-source">外盘视频或目录</label>
+          <div class="management-input-row">
+            <input
+              id="import-source"
+              type="text"
+              value="{{ default_source }}"
+              placeholder="/Volumes/杂章/move"
+              required
+            >
+            <button
+              id="browse-import-source"
+              class="download-policy-button"
+              type="button"
+            >选择来源</button>
+          </div>
+          <p class="download-field-hint">
+            支持单个视频或目录递归导入。格式包括 MP4、MKV、WebM、MOV、
+            TS、AVI、M4V 和 RMVB。
+          </p>
+        </section>
+
+        <section class="management-form-section external-import-destination-panel">
+          <div class="external-import-section-heading">
+            <div>
+              <p class="eyebrow">DESTINATION</p>
+              <h2>本地目标</h2>
+            </div>
+            <span class="external-import-step">2</span>
+          </div>
+          <label for="import-destination">本地目标目录</label>
+          <div class="management-input-row">
+            <input
+              id="import-destination"
+              type="text"
+              value="{{ default_destination }}"
+              required
+            >
+            <button
+              id="browse-import-destination"
+              class="download-policy-button"
+              type="button"
+            >选择目录</button>
+          </div>
+          <p class="download-field-hint">
+            视频复制成功并完成校验后才会写入视频库。
+          </p>
+        </section>
+      </div>
+
+      <div class="external-import-settings-grid">
+        <section class="management-form-section external-import-access-panel">
+          <div class="external-import-section-heading compact-heading">
+            <div>
+              <p class="eyebrow">ACCESS</p>
+              <h2>视频访问级别</h2>
+            </div>
+          </div>
+          <label for="external-import-access-level">导入后的访问级别</label>
+          <select id="external-import-access-level" required>
+            {% for level in access_levels %}
+            <option value="{{ level }}" {% if level == 0 %}selected{% endif %}>
+              {{ level }} · {{ access_level_labels[level] }}
+            </option>
+            {% endfor %}
+          </select>
+          <p class="download-field-hint">
+            该级别会应用到本批次创建的所有视频。
+          </p>
+        </section>
+
+        <section class="management-form-section import-options external-import-delete-panel">
+          <label class="import-delete-option">
+            <input id="import-delete-source" type="checkbox">
+            <span>
+              <strong>复制成功并加入视频库后，删除外盘原始文件</strong>
+              <small>校验、入库或资源处理失败时不会删除原文件。</small>
+            </span>
+          </label>
+        </section>
+      </div>
+
+      <section id="import-preview" class="management-form-section external-import-preview-panel" hidden>
+        <div class="external-import-section-heading compact-heading">
+          <div>
+            <p class="eyebrow">IMPORT PREVIEW</p>
+            <h2>导入预览</h2>
+          </div>
+        </div>
+        <div id="import-preview-summary" class="import-preview-summary"></div>
+        <div id="import-preview-samples" class="import-preview-samples"></div>
+      </section>
+
+      <form id="external-import-submit-form" class="management-form-section migration-submit-form external-import-submit-panel">
+        <div id="external-import-password-fields" hidden>
+          <label for="external-import-password">删除校验码</label>
+          <input
+            id="external-import-password"
+            type="password"
+            autocomplete="current-password"
+          >
+          <p class="download-field-hint">
+            删除外盘原始文件需要与删除视频及迁移任务相同的密码。
+          </p>
+        </div>
+        <p id="external-import-error" class="download-form-error" role="alert"></p>
+        <footer class="management-form-footer">
+          <a class="download-secondary-button" href="/manage/migrations">取消</a>
+          <button id="confirm-external-import" class="download-primary-button" type="submit">
+            确认创建导入任务
+          </button>
+        </footer>
+      </form>
+    </div>
+  </main>
+
+  <dialog id="import-browser-dialog" class="management-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">FILE BROWSER</p>
+          <h2 id="import-browser-title">选择文件或目录</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" data-close-import-browser aria-label="关闭">×</button>
+      </header>
+      <p id="import-browser-path" class="management-picked-path"></p>
+      <div id="import-browser-list" class="directory-list import-browser-list"></div>
+      <p id="import-browser-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button class="download-secondary-button" type="button" data-close-import-browser>取消</button>
+        <button id="select-import-directory" class="download-primary-button" type="button">
+          选择当前目录
+        </button>
+      </footer>
+    </div>
+  </dialog>
+
+  <script src="/static/external-import.js?v=20261116-import-access-layout"></script>
+</body>
+</html>

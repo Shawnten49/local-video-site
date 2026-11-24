@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>下载管理 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">DOWNLOAD QUEUE</p>
+        <h1>下载管理</h1>
+        <p id="download-summary" class="stats">
+          <span>共 <strong data-summary-total>{{ data["total"] }}</strong> 个任务</span>
+          <span>待下载 <strong data-summary-count="pending">{{ counts["pending"] }}</strong></span>
+          <span>下载中 <strong data-summary-count="running">{{ counts["running"] }}</strong></span>
+          <span>已暂停 <strong data-summary-count="paused">{{ counts["paused"] }}</strong></span>
+          <span data-summary-deleting {% if not counts["deleting"] %}hidden{% endif %}>
+            删除中 <strong data-summary-count="deleting">{{ counts["deleting"] }}</strong>
+          </span>
+          <span>失败 <strong data-summary-count="failed">{{ counts["failed"] }}</strong></span>
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        {% if is_admin %}
+        <a class="download-policy-button" href="/downloads/site-policies">
+          站点策略
+        </a>
+        {% endif %}
+        <a class="download-primary-button" href="/downloads/batch">
+          批量下载
+        </a>
+        <button id="new-download-task" class="download-primary-button" type="button">
+          新增任务
+        </button>
+      </div>
+    </section>
+    <p
+      id="download-notice"
+      class="download-notice"
+      aria-live="polite"
+      {% if not batch_notice %}hidden{% endif %}
+    >{{ batch_notice }}</p>
+
+    <form class="filters download-filters" method="get" action="/downloads">
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查任务 ID；其他内容搜索 URL、标题或文件名"
+      >
+      <select name="status" aria-label="下载状态">
+        <option value="">全部状态</option>
+        {% for value, label in status_labels.items() %}
+        <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      {% if is_admin %}
+      <select name="owner" aria-label="任务创建者">
+        <option value="">全部用户</option>
+        {% for item in owners %}
+        <option value="{{ item.created_by_username or '历史任务' }}" {% if owner == (item.created_by_username or '历史任务') %}selected{% endif %}>
+          {{ item.created_by_username or "历史任务" }}（{{ item.task_count }}）
+        </option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <button type="submit">查询</button>
+      {% if query or status or owner %}
+      <a class="category-button" href="/downloads">清除</a>
+      {% endif %}
+    </form>
+
+    <section id="download-table-section" class="download-table-wrap" {% if not data["items"] %}hidden{% endif %}>
+      <table class="download-table">
+        <colgroup>
+          <col class="download-col-id">
+          <col class="download-col-title">
+          <col class="download-col-file">
+          <col class="download-col-status">
+          <col class="download-col-size">
+          <col class="download-col-attempts">
+          <col class="download-col-message">
+          <col class="download-col-time">
+          <col class="download-col-actions">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>标题 / 网页地址</th>
+            <th>路径 / 文件名</th>
+            <th>状态 / 进度</th>
+            <th>文件大小</th>
+            <th>尝试</th>
+            <th>消息</th>
+            <th>时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="download-task-rows">
+          {% for task in data["items"] %}
+          {% include "partials/_download_task_row.html" %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    <section id="download-empty" class="empty" {% if data["items"] %}hidden{% endif %}>
+      <h2>没有下载任务</h2>
+      <p>点击“新增任务”，粘贴一个或多个网页地址。</p>
+    </section>
+
+    <div
+      id="download-pagination"
+      data-current-page="{{ data['page'] }}"
+      data-total-pages="{{ data['pages'] }}"
+      data-total-items="{{ data['total'] }}"
+      data-page-size="{{ data['page_size'] }}"
+    >
+      {% if data["items"] %}
+      <p class="download-pagination-summary">
+        当前筛选共 {{ data["total"] }} 个任务 ·
+        第 {{ data["page"] }}/{{ data["pages"] }} 页 ·
+        本页 {{ data["items"]|length }} 条
+      </p>
+      {% endif %}
+      {% with
+        pagination=data,
+        pager_action="/downloads",
+        pager_params={"q": query, "status": status, "owner": owner},
+        pager_input_id="download-page-jump"
+      %}
+        {% include "_pagination.html" %}
+      {% endwith %}
+    </div>
+  </main>
+
+  <dialog id="download-task-dialog" class="download-dialog">
+    <form
+      id="download-task-form"
+      class="download-dialog-card"
+      data-default-output-dir="{{ default_download_dir }}"
+    >
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">NEW DOWNLOAD</p>
+          <h2>新增下载任务</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-download-dialog
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <label for="download-output-dir">下载路径</label>
+      <input
+        id="download-output-dir"
+        name="output_dir"
+        type="text"
+        value="{{ default_download_dir }}"
+        required
+        {% if not is_admin %}readonly{% endif %}
+      >
+      {% if not is_admin %}
+      <p class="download-field-hint">普通用户使用默认下载目录。</p>
+      {% endif %}
+      <label for="download-quality">下载清晰度</label>
+      <select id="download-quality" name="quality">
+        <option value="site" selected>跟随站点策略</option>
+        <option value="auto">自动（最高 1080p）</option>
+        <option value="2160p">4K 优先（最高 2160p）</option>
+        <option value="1080p">1080p</option>
+        <option value="720p">720p</option>
+        <option value="480p">480p</option>
+        <option value="360p">360p</option>
+      </select>
+      <p class="download-field-hint">
+        跟随站点策略会使用各站点保存的视频选择与清晰度设置；固定档位仅用于本次任务。
+        4K 优先会优先选择 2160p，没有 4K 时自动回退到最接近的较低清晰度。
+        4K 会显著增加下载时间、文件大小和带宽消耗，且仍受站点账号或会员权限限制。
+      </p>
+      <label for="download-access-level">视频访问级别</label>
+      <select id="download-access-level" name="access_level">
+        {% for level in allowed_access_levels %}
+        <option value="{{ level }}" {% if level == 0 %}selected{% endif %}>
+          {{ level }} · {{ access_level_labels[level] }}
+        </option>
+        {% endfor %}
+      </select>
+      <p class="download-field-hint">
+        0 所有人可见，1 登录用户可见，2 仅管理员可见。
+      </p>
+      <label class="download-only-field" for="download-download-only">
+        <input
+          id="download-download-only"
+          name="download_only"
+          type="checkbox"
+        >
+        <span>
+          <strong>仅下载，不入库</strong>
+          <small>
+            勾选后只下载文件，不插入视频表，也不生成缩略图和预览。
+          </small>
+        </span>
+      </label>
+      <div class="download-mode-tabs" role="tablist" aria-label="下载模式">
+        <button
+          id="download-mode-normal-tab"
+          class="download-mode-tab is-active"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="download-normal-panel"
+          data-download-mode="normal"
+        >普通下载</button>
+        <button
+          id="download-mode-special-tab"
+          class="download-mode-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="download-special-panel"
+          data-download-mode="special"
+        >特殊下载</button>
+      </div>
+      <section
+        id="download-normal-panel"
+        class="download-mode-panel"
+        role="tabpanel"
+        aria-labelledby="download-mode-normal-tab"
+        data-download-panel="normal"
+      >
+        <label for="download-urls">网页地址，每行一个</label>
+        <textarea
+          id="download-urls"
+          name="urls"
+          rows="8"
+          placeholder="https://example.com/video/1&#10;https://example.com/video/2"
+          required
+        ></textarea>
+      </section>
+      <section
+        id="download-special-panel"
+        class="download-mode-panel"
+        role="tabpanel"
+        aria-labelledby="download-mode-special-tab"
+        data-download-panel="special"
+        hidden
+      >
+        <div class="download-source-heading" aria-hidden="true">
+          <span>数据来源</span>
+          <span>下载来源</span>
+          <span></span>
+        </div>
+        <div id="download-source-rows" class="download-source-rows">
+          <div class="download-source-row">
+            <input
+              type="url"
+              data-metadata-url
+              placeholder="https://site-a.example/video/1"
+              aria-label="数据来源地址"
+              required
+              disabled
+            >
+            <input
+              type="url"
+              data-download-url
+              placeholder="留空表示与数据来源相同"
+              aria-label="下载来源地址"
+              disabled
+            >
+            <button
+              type="button"
+              class="download-remove-row"
+              data-remove-download-row
+              aria-label="删除这一行"
+              disabled
+            >×</button>
+          </div>
+        </div>
+        <button
+          id="add-download-row"
+          class="download-add-row"
+          type="button"
+          disabled
+        >新增一行</button>
+      </section>
+      <p id="download-task-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button type="button" class="download-secondary-button" data-close-download-dialog>取消</button>
+        <button id="save-download-task" type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="download-record-delete-dialog" class="download-dialog">
+    <form id="download-record-delete-form" class="download-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">DELETE RECORD ONLY</p>
+          <h2>仅删除下载记录</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-record-delete
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <p id="download-record-delete-description" class="download-delete-description"></p>
+      <p class="download-delete-warning">
+        只物理删除 download_tasks 中的任务历史。视频文件、临时文件、
+        断点、日志、缩略图、封面和预览都不会被删除。
+      </p>
+      <p id="download-record-delete-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button
+          type="button"
+          class="download-secondary-button"
+          data-close-record-delete
+        >取消</button>
+        <button
+          id="confirm-record-delete"
+          class="danger-button"
+          type="submit"
+        >仅删除记录</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="download-delete-dialog" class="download-dialog">
+    <form id="download-delete-form" class="download-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">DELETE DOWNLOAD</p>
+          <h2>删除下载任务</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-delete-dialog
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <p id="download-delete-description" class="download-delete-description"></p>
+      <p class="download-delete-warning">
+        当前下载将被停止，已下载片段、断点文件和关联视频资源将被永久删除。
+        此操作不可恢复。
+      </p>
+      <label
+        id="download-delete-password-label"
+        for="download-delete-password"
+        hidden
+      >删除校验码</label>
+      <input
+        id="download-delete-password"
+        type="password"
+        autocomplete="current-password"
+        hidden
+      >
+      <p id="download-delete-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button
+          type="button"
+          class="download-secondary-button"
+          data-close-delete-dialog
+        >取消</button>
+        <button
+          id="confirm-download-delete"
+          class="danger-button"
+          type="submit"
+        >确认删除</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <script src="/static/download-tasks.js?v=20261120-download-only"></script>
+</body>
+</html>

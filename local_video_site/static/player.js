@@ -1,0 +1,535 @@
+import { createPlaybackSession } from "./playback-session.js";
+
+const nativePlayer = document.getElementById("player");
+if (nativePlayer) initialize();
+
+async function initialize() {
+  const storageKey = `local-video-position:${location.pathname}`;
+  const saved = Number(localStorage.getItem(storageKey) || 0);
+  const warning = document.getElementById("playback-warning");
+  const warningTitle = document.getElementById("playback-warning-title");
+  const warningText = document.getElementById("playback-warning-text");
+  const warningAction = document.getElementById("playback-warning-action");
+  const retryButton = document.getElementById("playback-retry");
+  const standardizeButton = document.getElementById(
+    "playback-standardize",
+  );
+  const standardizeDialog = document.getElementById(
+    "standardize-video-dialog",
+  );
+  const standardizeForm = document.getElementById(
+    "standardize-video-form",
+  );
+  const standardizeStrategy = document.getElementById(
+    "standardize-strategy",
+  );
+  const standardizeSource = document.getElementById(
+    "standardize-source",
+  );
+  const standardizeTarget = document.getElementById(
+    "standardize-target",
+  );
+  const standardizeWarning = document.getElementById(
+    "standardize-warning",
+  );
+  const standardizeLossyConfirm = document.getElementById(
+    "standardize-lossy-confirm",
+  );
+  const standardizeLossyCheckbox = document.getElementById(
+    "standardize-confirm-lossy",
+  );
+  const standardizeError = document.getElementById(
+    "standardize-error",
+  );
+  const standardizeConfirmButton = document.getElementById(
+    "confirm-standardize-video",
+  );
+  const stateUrl = nativePlayer.dataset.stateUrl;
+  const prepareUrl = nativePlayer.dataset.prepareUrl;
+  const standardizePreviewUrl =
+    nativePlayer.dataset.standardizePreviewUrl || "";
+  const standardizeUrl = nativePlayer.dataset.standardizeUrl || "";
+  let preparing = false;
+  let session = null;
+  let standardizePreview = null;
+  let standardizePollTimer = null;
+
+  async function fetchStandardizationPreview() {
+    if (!standardizePreviewUrl) return null;
+    const response = await fetch(standardizePreviewUrl, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        payload.detail?.message || payload.detail || `HTTP ${response.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async function refreshStandardizeAction() {
+    if (!standardizeButton) return;
+    standardizeButton.hidden = true;
+    try {
+      const preview = await fetchStandardizationPreview();
+      standardizePreview = preview;
+      if (!preview) return;
+      if (preview.active_job?.id) {
+        standardizeButton.hidden = false;
+        standardizeButton.textContent = "查看转码进度";
+        startStandardizePolling(preview.active_job.id);
+        return;
+      }
+      if (!preview.eligible) return;
+      standardizeButton.hidden = false;
+      standardizeButton.textContent = "转标准码";
+    } catch (_) {
+      standardizeButton.hidden = true;
+    }
+  }
+
+  function showWarning(state, refreshStandardize = true) {
+    if (!warning) return;
+    warning.hidden = false;
+    warning.dataset.state = state.state || "playback_failed";
+    warning.className =
+      `playback-warning playback-state-${state.state || "playback_failed"}`;
+    if (warningTitle) {
+      warningTitle.textContent = state.title || "视频暂时无法播放";
+    }
+    if (warningText) warningText.textContent = state.message || "";
+    if (warningAction) warningAction.textContent = state.action_text || "";
+    if (retryButton) retryButton.hidden = !state.retryable;
+    if (
+      refreshStandardize
+      &&
+      standardizeButton
+      && [
+        "playback_failed",
+        "movi_failed",
+        "unsupported_codec",
+      ].includes(state.state || "")
+    ) {
+      refreshStandardizeAction();
+    } else if (standardizeButton) {
+      standardizeButton.hidden = true;
+    }
+  }
+
+  function hideWarning() {
+    if (warning) warning.hidden = true;
+    if (standardizeButton) standardizeButton.hidden = true;
+  }
+
+  function showCodecFailure(detail = "") {
+    showWarning({
+      state: "playback_failed",
+      title: "当前浏览器无法播放此视频",
+      message: detail
+        ? `视频文件在线，但浏览器播放失败：${detail}`
+        : "视频文件在线，但当前浏览器无法解码该视频，或兼容播放器加载失败。",
+      action_text: "可以重新检测，或尝试转成标准 MP4。",
+      retryable: true,
+    });
+  }
+
+  function standardizeDescription(preview) {
+    if (!preview) return "";
+    if (preview.strategy === "remux") {
+      return "无损重封装为 H.264 + AAC 标准 MP4";
+    }
+    return "重新编码为 H.264 + AAC 标准 MP4";
+  }
+
+  function updateStandardizeConfirmState() {
+    if (!standardizeConfirmButton) return;
+    const lossyRequired = Boolean(
+      standardizePreview?.lossy
+      && !standardizeLossyCheckbox?.checked,
+    );
+    standardizeConfirmButton.disabled = lossyRequired;
+    standardizeConfirmButton.textContent = standardizePreview?.lossy
+      ? "确认有损转标准码"
+      : "确认无损转标准码";
+  }
+
+  function openStandardizeDialog(preview) {
+    if (!standardizeDialog || !preview) return;
+    standardizePreview = preview;
+    if (standardizeStrategy) {
+      standardizeStrategy.textContent = standardizeDescription(preview);
+    }
+    if (standardizeSource) {
+      const source = preview.source || {};
+      standardizeSource.textContent =
+        `源：${source.container || "未知容器"} · `
+        + `${source.video_codec || "未知视频"} / `
+        + `${source.audio_codec || "无音频"}`;
+    }
+    if (standardizeTarget) {
+      const target = preview.target || {};
+      standardizeTarget.textContent =
+        `输出：${target.container || "mp4"} · `
+        + `${target.video_codec || "h264"} / `
+        + `${target.audio_codec || "无音频"}`;
+    }
+    if (standardizeWarning) {
+      standardizeWarning.hidden = !preview.lossy;
+    }
+    if (standardizeLossyConfirm) {
+      standardizeLossyConfirm.hidden = !preview.lossy;
+    }
+    if (standardizeLossyCheckbox) {
+      standardizeLossyCheckbox.checked = false;
+    }
+    if (standardizeError) standardizeError.textContent = "";
+    updateStandardizeConfirmState();
+    standardizeDialog.showModal();
+  }
+
+  function stopStandardizePolling() {
+    if (standardizePollTimer) {
+      window.clearTimeout(standardizePollTimer);
+      standardizePollTimer = null;
+    }
+  }
+
+  async function startStandardizePolling(jobId) {
+    stopStandardizePolling();
+    if (!jobId) return;
+    const poll = async () => {
+      try {
+        const response = await fetch(
+          `/api/manage/format-jobs/live?ids=${encodeURIComponent(jobId)}`,
+          { cache: "no-store" },
+        );
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const job = (payload.items || [])[0];
+        if (!job) throw new Error("未找到转码任务");
+        if (job.status === "success") {
+          if (standardizeButton) standardizeButton.hidden = true;
+          hideWarning();
+          await refreshPlayback(true);
+          return;
+        }
+        if (["failed", "cancelled"].includes(job.status)) {
+          showWarning({
+            state: "playback_failed",
+            title: "转标准码失败",
+            message: job.error_detail || "任务未能完成。",
+            action_text: "可以重新检测，或再次尝试转标准码。",
+            retryable: true,
+          });
+          return;
+        }
+        showWarning({
+          state: "cache_required",
+          title: "正在转标准码",
+          message:
+            `${job.stage_label || job.stage || "处理中"} · `
+            + `${Number(job.progress_percent || 0).toFixed(1)}%`,
+          action_text: "转换完成后会自动重新检测并播放。",
+          retryable: false,
+        }, false);
+        standardizePollTimer = window.setTimeout(poll, 2000);
+      } catch (error) {
+        showWarning({
+          state: "playback_failed",
+          title: "无法读取转码进度",
+          message: error.message || String(error),
+          action_text: "请稍后重新检测。",
+          retryable: true,
+        });
+      }
+    };
+    standardizePollTimer = window.setTimeout(poll, 600);
+  }
+
+  async function fetchPlaybackState() {
+    if (!stateUrl) return null;
+    const response = await fetch(stateUrl, { cache: "no-store" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.detail || `HTTP ${response.status}`);
+    }
+    return response.json();
+  }
+
+  function loadPlaybackUrl(url) {
+    if (!url || !session) return;
+    session.load(url);
+    hideWarning();
+  }
+
+  async function preparePlayback(preparationState = null) {
+    if (!prepareUrl || preparing) return;
+    preparing = true;
+    showWarning(
+      preparationState || {
+        state: "cache_required",
+        title: "正在准备播放缓存",
+        message: "视频文件在线，首次打开可能需要一些时间。",
+        action_text: "",
+        retryable: false,
+      },
+    );
+    try {
+      const response = await fetch(prepareUrl, { method: "POST" });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail || `HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      loadPlaybackUrl(
+        result.playback_url || nativePlayer.dataset.playbackUrl || "",
+      );
+    } catch (error) {
+      let state = null;
+      try {
+        state = await fetchPlaybackState();
+      } catch (_) {
+        state = null;
+      }
+      if (
+        state
+        && !state.playable
+        && state.state !== "cache_required"
+        && state.state !== "transcode_required"
+      ) {
+        showWarning(state);
+      } else {
+        showCodecFailure(`播放缓存准备失败：${error.message}`);
+      }
+    } finally {
+      preparing = false;
+    }
+  }
+
+  async function refreshPlayback(autoPrepare = true) {
+    try {
+      const state = await fetchPlaybackState();
+      if (!state) return null;
+      if (state.playable) {
+        if (state.engine === "movi" && session?.element === nativePlayer) {
+          showWarning({
+            state: "movi_required",
+            title: "需要重新加载兼容播放器",
+            message: "当前页面尚未启用兼容播放器，请重新加载页面。",
+            action_text: "",
+            retryable: true,
+          });
+          return state;
+        }
+        loadPlaybackUrl(state.playback_url);
+        return state;
+      }
+      if (
+        ["cache_required", "transcode_required"].includes(state.state)
+        && autoPrepare
+        && prepareUrl
+      ) {
+        showWarning(state);
+        await preparePlayback(state);
+        return state;
+      }
+      showWarning(state);
+      return state;
+    } catch (error) {
+      showCodecFailure(error.message);
+      return null;
+    }
+  }
+
+  function restorePosition() {
+    if (!Number.isFinite(saved) || saved <= 3) return;
+    const maximum = session.duration;
+    if (maximum && saved < maximum - 10) {
+      session.element.currentTime = saved;
+    }
+  }
+
+  function bindPlayerEvents() {
+    session.addEventListener("error", async () => {
+      const state = await refreshPlayback(false);
+      if (state?.playable) showCodecFailure();
+    });
+    session.addEventListener("loadedmetadata", restorePosition, { once: true });
+    if (session.element.tagName.toLowerCase() === "movi-player") {
+      session.addEventListener("loadeddata", restorePosition, { once: true });
+    }
+
+    let lastSaved = 0;
+    session.addEventListener("timeupdate", () => {
+      const now = Date.now();
+      if (now - lastSaved > 3000) {
+        localStorage.setItem(
+          storageKey,
+          String(session.currentTime),
+        );
+        lastSaved = now;
+      }
+    });
+    session.addEventListener(
+      "ended",
+      () => localStorage.removeItem(storageKey),
+    );
+  }
+
+  function seek(delta) {
+    session.seek(session.currentTime + delta);
+  }
+
+  retryButton?.addEventListener("click", () => {
+    if (!session) {
+      window.location.reload();
+      return;
+    }
+    refreshPlayback(true);
+  });
+
+  standardizeButton?.addEventListener("click", async () => {
+    if (standardizeButton.disabled) return;
+    standardizeButton.disabled = true;
+    try {
+      const preview = await fetchStandardizationPreview();
+      standardizePreview = preview;
+      if (preview?.active_job?.id) {
+        startStandardizePolling(preview.active_job.id);
+        return;
+      }
+      if (!preview?.eligible) {
+        throw new Error(preview?.reason || "当前视频不能转标准码");
+      }
+      openStandardizeDialog(preview);
+    } catch (error) {
+      showWarning({
+        state: "playback_failed",
+        title: "当前浏览器无法播放此视频",
+        message: error.message || String(error),
+        action_text: "可以重新检测，或检查视频文件状态。",
+        retryable: true,
+      });
+    } finally {
+      standardizeButton.disabled = false;
+    }
+  });
+
+  standardizeLossyCheckbox?.addEventListener(
+    "change",
+    updateStandardizeConfirmState,
+  );
+
+  standardizeDialog?.querySelectorAll("[data-close-standardize]").forEach(
+    (node) => {
+      node.addEventListener("click", () => standardizeDialog.close());
+    },
+  );
+
+  standardizeForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!standardizePreview || !standardizeUrl) return;
+    if (standardizePreview.lossy && !standardizeLossyCheckbox?.checked) {
+      if (standardizeError) {
+        standardizeError.textContent = "请先确认有损转换。";
+      }
+      return;
+    }
+    if (standardizeConfirmButton) {
+      standardizeConfirmButton.disabled = true;
+      standardizeConfirmButton.textContent = "正在创建任务…";
+    }
+    if (standardizeError) standardizeError.textContent = "";
+    try {
+      const response = await fetch(standardizeUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmed: true,
+          confirm_lossy: Boolean(standardizePreview.lossy),
+          expected_path: nativePlayer.dataset.videoPath || "",
+          expected_mtime_ns: nativePlayer.dataset.videoMtimeNs || "",
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          payload.detail?.message
+          || payload.detail
+          || `HTTP ${response.status}`,
+        );
+      }
+      standardizeDialog?.close();
+      if (payload.id || payload.existing_job_id) {
+        startStandardizePolling(payload.id || payload.existing_job_id);
+      } else {
+        const preview = await fetchStandardizationPreview();
+        if (preview?.active_job?.id) {
+          startStandardizePolling(preview.active_job.id);
+        }
+      }
+    } catch (error) {
+      if (standardizeError) {
+        standardizeError.textContent = error.message || String(error);
+      }
+    } finally {
+      updateStandardizeConfirmState();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!session || event.target.matches("input, textarea, select")) return;
+    switch (event.key.toLowerCase()) {
+      case " ":
+        event.preventDefault();
+        session.paused ? session.play() : session.pause();
+        break;
+      case "arrowleft":
+        event.preventDefault();
+        seek(-5);
+        break;
+      case "arrowright":
+        event.preventDefault();
+        seek(5);
+        break;
+      case "j":
+        seek(-10);
+        break;
+      case "l":
+        seek(10);
+        break;
+      case "m":
+        session.muted = !session.muted;
+        break;
+      case "f":
+        if (document.fullscreenElement) document.exitFullscreen();
+        else session.requestFullscreen();
+        break;
+    }
+  });
+
+  try {
+    session = await createPlaybackSession(nativePlayer, {
+      route: nativePlayer.dataset.playbackEngine || "native",
+      scriptUrl: nativePlayer.dataset.moviScript,
+      wasmUrl: nativePlayer.dataset.moviWasm,
+      bufferMb: Number(nativePlayer.dataset.moviBufferMb || 96),
+      loadTimeoutSeconds: Number(
+        nativePlayer.dataset.moviLoadTimeout || 20,
+      ),
+      poster: nativePlayer.getAttribute("poster") || "",
+      title: document.title,
+    });
+    bindPlayerEvents();
+    await refreshPlayback(true);
+  } catch (error) {
+    showWarning({
+      state: "movi_failed",
+      title: "兼容播放器加载失败",
+      message: error.message || "无法加载浏览器兼容播放器。",
+      action_text: "点击重新检测，或使用支持该编码的播放器打开原文件。",
+      retryable: true,
+    });
+  }
+}

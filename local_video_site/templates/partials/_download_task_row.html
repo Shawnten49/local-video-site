@@ -1,0 +1,224 @@
+{% set task_display_title = task.video_display_title or task.display_title or task.title or "等待解析标题" %}
+<tr
+  data-task-id="{{ task.id }}"
+  data-task-status="{{ task.status }}"
+  data-task-title="{{ task_display_title if task.display_title or task.title else task.url }}"
+  data-task-downloaded="{{ task.downloaded_bytes|filesize }}"
+  data-task-updated-at="{{ task.updated_at or '' }}"
+  data-delete-password-required="{{ 1 if task.video_id or task.file_path else 0 }}"
+>
+  <td class="download-id">#{{ task.id }}</td>
+  <td class="download-title-cell">
+    <strong title="{{ task.title or task.display_title or '' }}">{{ task_display_title }}</strong>
+    {% if not task.index_into_library %}
+    <span class="download-only-badge">仅下载</span>
+    {% endif %}
+    {% if task.metadata_url and task.normalized_metadata_url != task.normalized_url %}
+    <div class="download-source-links">
+      <small>数据来源 A</small>
+      <a
+        href="{{ task.metadata_url }}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="{{ task.metadata_url }}"
+      >{{ task.metadata_url }}</a>
+      <small>下载来源 B</small>
+      <a
+        href="{{ task.url }}"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="{{ task.url }}"
+      >{{ task.url }}</a>
+    </div>
+    {% else %}
+    <a
+      href="{{ task.url }}"
+      target="_blank"
+      rel="noopener noreferrer"
+      title="{{ task.url }}"
+    >{{ task.url }}</a>
+    {% endif %}
+    {% if is_admin %}
+    <small class="download-owner-label">
+      创建者：{{ task.created_by_username or "历史任务" }}
+    </small>
+    {% endif %}
+  </td>
+  <td class="download-file-cell">
+    <span title="{{ task.output_dir }}">{{ task.output_dir }}</span>
+    <small>{{ task.file_name or "—" }}</small>
+  </td>
+  <td class="download-status-cell">
+    {% set task_status_label = status_labels.get(task.status, task.status) %}
+    {% set task_stage_label = stage_labels.get(task.stage, task.stage) %}
+    <div class="download-status-heading">
+      <div class="download-status-title">
+        <span class="download-status status-{{ task.status }}">
+          {{ task_status_label }}
+        </span>
+        {% if task_stage_label != task_status_label %}
+        <span class="download-status-stage">{{ task_stage_label }}</span>
+        {% endif %}
+      </div>
+      <em data-progress>{{ "%.1f"|format(task.progress_percent) }}%</em>
+    </div>
+    <div class="download-progress-track" aria-label="下载进度 {{ task.progress_percent|round(1) }}%">
+      <span style="width: {{ [task.progress_percent, 100]|min }}%"></span>
+    </div>
+    <div
+      class="download-live-metrics{% if task.metrics_stale %} is-stale{% endif %}"
+      data-task-metrics
+      data-task-running="{{ 1 if task.status in ('running', 'pausing') else 0 }}"
+      data-task-elapsed="{{ task.elapsed_live_seconds }}"
+      data-task-eta="{{ task.eta_live_seconds if task.eta_live_seconds is not none else '' }}"
+    >
+      <span class="download-live-speed">
+        {% if task.speed_kind == "current" %}
+          速度 {{ task.speed_live_bytes|filesize }}/s
+        {% elif task.speed_kind == "average" %}
+          平均 {{ task.speed_live_bytes|filesize }}/s
+        {% else %}
+          速度 —
+        {% endif %}
+      </span>
+      <span>
+        已用 <span data-metric-elapsed>{{ task.elapsed_live_seconds|elapsed_duration }}</span>
+      </span>
+      <span class="download-live-eta">
+        {% if task.eta_live_seconds is not none %}
+          剩余 <span data-metric-eta>{{ task.eta_live_seconds|elapsed_duration }}</span>
+        {% elif task.status == "pending" %}
+          剩余 等待开始
+        {% elif task.status == "running" and task.metrics_stale %}
+          等待新进度
+        {% elif task.status == "running" and task.stage != "downloading" %}
+          剩余 准备中
+        {% else %}
+          剩余 —
+        {% endif %}
+      </span>
+    </div>
+    {% if task.media_refresh_count or task.resume_validation in ("pending", "success", "failed") %}
+    <div
+      class="download-recovery-info"
+      title="媒体地址到期：{{ task.media_url_expires_at or '未知' }}"
+    >
+      {% if task.media_refresh_count %}
+        地址刷新 {{ task.media_refresh_count }} 次
+      {% endif %}
+      {% if task.resume_validation == "pending" %}
+        · 断点待校验
+      {% elif task.resume_validation == "success" %}
+        · 断点校验通过
+      {% elif task.resume_validation == "failed" %}
+        · 断点校验失败
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if task.transport_kind == "direct-range" %}
+    <div class="download-transport-info">
+      HTTP Range · {{ task.range_connection_count }} 连接
+      {% if task.range_total_chunks %}
+        · 分段 {{ task.range_completed_chunks }}/{{ task.range_total_chunks }}
+      {% endif %}
+    </div>
+    {% elif task.transport_kind == "hls" %}
+    <div class="download-transport-info">
+      HLS · {{ task.hls_connection_count or 1 }} 连接
+      {% if task.hls_total_segments %}
+        · 分段 {{ task.hls_completed_segments }}/{{ task.hls_total_segments }}
+      {% endif %}
+    </div>
+    {% endif %}
+  </td>
+  <td class="download-size-cell">
+    <div class="download-size-main">
+      <strong>{{ task.downloaded_bytes|filesize }}</strong>
+      {% if task.display_media_quality %}
+      <span
+        class="download-quality-badge"
+        title="{{ task.display_media_resolution or task.display_media_quality }}"
+      >{{ task.display_media_quality }}</span>
+      {% elif task.display_requested_quality %}
+      <span
+        class="download-quality-badge is-requested"
+        title="目标清晰度，实际媒体流尚未解析"
+      >{{ task.display_requested_quality }}</span>
+      {% elif task.status in ("pending", "running", "pausing") %}
+      <span class="download-quality-badge is-unknown">待解析</span>
+      {% else %}
+      <span class="download-quality-badge is-unknown">—</span>
+      {% endif %}
+    </div>
+    <small>
+      总大小
+      {% if task.total_bytes %}
+        {{ task.total_bytes|filesize }}
+      {% else %}
+        —
+      {% endif %}
+    </small>
+  </td>
+  <td>{{ task.attempts }} / {{ task.max_attempts }}</td>
+  <td class="download-message" title="{{ task.error_detail or task.message or '' }}">
+    <span class="download-message-text">{{ task.message or "—" }}</span>
+  </td>
+  <td class="download-time">
+    <span>创建 {{ task.created_at[:19]|replace("T", " ") }}</span>
+    {% if task.finished_at %}<span>完成 {{ task.finished_at[:19]|replace("T", " ") }}</span>{% endif %}
+  </td>
+  <td class="download-actions">
+    <div class="download-actions-inner">
+    {% if task.video_id and task.video_available %}
+    <a href="/watch/{{ task.video_id }}">播放</a>
+    {% elif task.status == "success" and not task.video_available %}
+    <span class="download-orphan-label">源视频已删除</span>
+    {% endif %}
+    {% if task.status == "success" %}
+    <button
+      type="button"
+      class="download-link-button download-delete-button"
+      data-action="delete-record"
+    >删除记录</button>
+    {% if is_admin and not task.video_available %}
+    {% if is_admin %}
+    <button
+      type="button"
+      class="download-link-button download-delete-button"
+      data-action="delete"
+    >删除任务及数据</button>
+    {% endif %}
+    {% endif %}
+    {% elif task.status == "deleting" %}
+    <span>删除中…</span>
+    {% else %}
+    {% if task.status in ("pending", "running") %}
+    <button
+      type="button"
+      class="download-link-button"
+      data-action="pause"
+    >暂停</button>
+    {% elif task.status == "pausing" %}
+    <span>暂停中…</span>
+    {% elif task.status == "paused" or (task.status in ("failed", "cancelled") and (task.partial_path or task.checkpoint_path)) %}
+    <button
+      type="button"
+      class="download-link-button"
+      data-action="resume"
+    >继续下载</button>
+    {% elif task.status in ("failed", "cancelled") %}
+    <button
+      type="button"
+      class="download-link-button"
+      data-action="retry"
+    >重试</button>
+    {% endif %}
+    <button
+      type="button"
+      class="download-link-button download-delete-button"
+      data-action="delete"
+    >删除任务及数据</button>
+    {% endif %}
+    </div>
+  </td>
+</tr>

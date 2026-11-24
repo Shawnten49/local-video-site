@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>演员清单 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/">返回</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="library-heading category-heading">
+      <div>
+        <p class="eyebrow">ACTORS</p>
+        <h1>演员清单</h1>
+        <p class="stats">{{ data["total"] }} 位演员 · 按视频数量从多到少排列</p>
+      </div>
+      <form class="search category-search" method="get" action="/actors">
+        <input type="search" name="q" value="{{ query }}" placeholder="搜索演员姓名">
+        <button type="submit">搜索</button>
+      </form>
+    </section>
+
+    {% if data["items"] %}
+    <section class="actor-grid">
+      {% for actor in data["items"] %}
+      <a class="actor-card" href="/actors/{{ actor.id }}">
+        <span class="actor-avatar-frame" style="--avatar-hue: {{ actor.id % 360 }}">
+          {% if actor.avatar_available %}
+          <img
+            class="actor-avatar"
+            src="/actor-avatar/{{ actor.id }}?v={{ (actor.avatar_fetched_at or actor.id)|urlencode }}"
+            alt="{{ actor.name }}"
+            width="56"
+            height="56"
+            loading="lazy"
+            decoding="async"
+          >
+          {% else %}
+          <span class="actor-avatar-fallback" aria-hidden="true">{{ actor.name[:1]|upper }}</span>
+          {% endif %}
+        </span>
+        <span class="actor-card-copy">
+          <span class="actor-name">{{ actor.name }}</span>
+          <span class="actor-video-count">{{ actor.video_count }} 部视频</span>
+        </span>
+      </a>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有找到演员</h2>
+      <p>尝试其他关键词。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/actors",
+      pager_params={"q": query},
+      pager_input_id="actor-page-jump"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+</body>
+</html>

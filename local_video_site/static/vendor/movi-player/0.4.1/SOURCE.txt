@@ -1,0 +1,9 @@
+Package: movi-player
+Version: 0.4.1
+Source: https://registry.npmjs.org/movi-player/-/movi-player-0.4.1.tgz
+Project: https://github.com/mrujjwalg/movi-player
+License: Apache-2.0 (see LICENSE in this directory)
+
+SHA-256:
+834efaa395f82503fdea3538e03c2ad83f01a7fc409ca93d93dea500affa63c7  element.slim.js
+a90da45449126b10b68ac2b816aa28b9ce43cd7d3e307e7201e0ebd73f92f530  movi.wasm

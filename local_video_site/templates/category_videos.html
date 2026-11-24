@@ -1,0 +1,62 @@
+<!doctype html>
+{% from "_video_thumb.html" import video_thumb %}
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ category.name }} · {{ "人工标签" if is_manual else "分类" }} · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/categories">返回全部分类</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="library-heading">
+      <div>
+        <p class="eyebrow">{{ "MANUAL CATEGORY" if is_manual else "CATEGORY" }}</p>
+        <h1># {{ category.name }}</h1>
+        <p class="stats">{{ category.video_count }} 部视频</p>
+      </div>
+      <form class="filters" method="get" action="{{ pager_action }}">
+        <select name="sort" aria-label="排序">
+          <option value="recent" {% if sort == 'recent' %}selected{% endif %}>最近更新</option>
+          <option value="name" {% if sort == 'name' %}selected{% endif %}>名称</option>
+          <option value="duration" {% if sort == 'duration' %}selected{% endif %}>时长</option>
+          <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>最旧优先</option>
+        </select>
+        <button type="submit">应用</button>
+      </form>
+    </section>
+
+    <section class="video-grid">
+      {% for video in data["items"] %}
+      <a class="video-card" href="/watch/{{ video.id }}?return_to={{ return_to|urlencode }}">
+        {{ video_thumb(video) }}
+        <div class="card-body">
+          <h2 title="{{ video.title }}">{{ video.title }}</h2>
+          <p>{{ video.directory }} · {{ video.size|filesize }}</p>
+        </div>
+      </a>
+      {% endfor %}
+    </section>
+
+    {% with
+      pagination=data,
+      pager_action=pager_action,
+      pager_params={"sort": sort},
+      pager_input_id="category-video-page-jump"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+  <script src="/static/hover-preview.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+<dialog id="series-edit-dialog" class="management-dialog series-edit-dialog">
+  <form id="series-edit-form" class="management-dialog-card">
+    <header class="series-edit-header">
+      <div>
+        <p class="eyebrow">DISPLAY NAME</p>
+        <h2 id="series-edit-title">修改展示名称</h2>
+      </div>
+      <button
+        class="cover-dialog-close"
+        type="button"
+        aria-label="关闭"
+        data-cancel-series-edit
+      >×</button>
+    </header>
+
+    <dl class="series-edit-source">
+      <div>
+        <dt>原始扫描名称</dt>
+        <dd id="series-edit-source-name"></dd>
+      </div>
+      <div>
+        <dt>影响范围</dt>
+        <dd>仅修改网站展示名称，不修改目录、视频文件名或原始网页地址。</dd>
+      </div>
+    </dl>
+
+    <label class="series-edit-field" for="series-edit-name">
+      展示名称
+      <input
+        id="series-edit-name"
+        name="display_name"
+        type="text"
+        maxlength="120"
+        autocomplete="off"
+        required
+      >
+    </label>
+    <p class="series-edit-hint">
+      输入原始扫描名称可清除覆盖值，恢复使用扫描名称。
+    </p>
+    <p id="series-edit-error" class="delete-error" role="alert"></p>
+
+    <footer class="series-edit-actions">
+      <button
+        class="cover-secondary-button"
+        type="button"
+        data-cancel-series-edit
+      >取消</button>
+      <button
+        id="series-edit-submit"
+        class="download-primary-button"
+        type="submit"
+      >保存修改</button>
+    </footer>
+  </form>
+</dialog>

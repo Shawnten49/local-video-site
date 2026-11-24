@@ -1,0 +1,42 @@
+plugins {
+    id "com.android.application"
+}
+
+def defaultServerUrl =
+    project.findProperty("LOCAL_VIDEO_SERVER_URL")
+    ?: "http://10.0.2.2:8766/"
+
+android {
+    namespace "com.shawn.localvideotv"
+    compileSdk 35
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        applicationId "com.shawn.localvideotv"
+        minSdk 23
+        targetSdk 35
+        versionCode 2
+        versionName "1.0.1"
+
+        buildConfigField "String", "DEFAULT_URL", "\"${defaultServerUrl}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            // Personal sideload build: use the stable local Android debug key so
+            // successive local builds can update the installed TV app.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

@@ -1,0 +1,196 @@
+<!doctype html>
+{% from "_video_thumb.html" import video_thumb %}
+{% set viewer = request.state.identity %}
+{% set is_admin = viewer.role == "admin" %}
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+</head>
+<body>
+  <header class="site-header topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">V</span>
+      <span class="brand-text">LOCAL <em>VIDEO</em></span>
+    </a>
+    {% if page_mode == "admin_only" %}
+    <a class="back-link library-back-link" href="/">返回首页</a>
+    {% endif %}
+    <div class="header-actions topbar-nav">
+      {% if is_admin %}
+      <a class="category-button" href="/categories">分类</a>
+      <a class="category-button actor-nav-button" href="/actors">演员</a>
+      {% endif %}
+      {% if viewer.authenticated %}
+      <a
+        class="category-button favorite-nav-button"
+        href="/favorites"
+        aria-label="我的收藏，{{ favorite_count }} 部视频"
+      >
+        <span aria-hidden="true">★</span>
+        我的收藏
+        <span class="favorite-count">{{ favorite_count }}</span>
+      </a>
+      {% endif %}
+    </div>
+    <form class="search topbar-search" method="get" action="{{ page_search_action }}">
+        <input type="search" name="q" value="{{ query }}" placeholder="搜索视频名称">
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        <button type="submit">搜索</button>
+    </form>
+    {% if is_admin %}
+    <a
+      class="category-button manage-video-nav-button"
+      href="/manage/videos"
+    >
+      视频管理
+    </a>
+    {% endif %}
+    {% if viewer.authenticated %}
+    <a class="category-button" href="/account">{{ viewer.username }}</a>
+    <form class="header-logout-form" method="post" action="/logout">
+      <button class="category-button" type="submit">退出</button>
+    </form>
+    {% else %}
+    <a class="category-button" href="/login?next=%2F">登录</a>
+    {% endif %}
+  </header>
+
+  <main>
+    <section class="library-heading">
+      <div>
+        {% if collection_title %}
+        <p class="eyebrow">ADMIN ONLY</p>
+        <h1>{{ collection_title }}</h1>
+        {% endif %}
+        <p class="stats">{{ stats.total }} 部视频 · {{ stats.total_bytes|filesize }}</p>
+      </div>
+      <form class="filters" method="get" action="{{ page_search_action }}">
+        {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+        <select name="sort" aria-label="排序">
+          <option value="recent" {% if sort == 'recent' %}selected{% endif %}>最近更新</option>
+          <option value="name" {% if sort == 'name' %}selected{% endif %}>名称</option>
+          <option value="duration" {% if sort == 'duration' %}selected{% endif %}>时长</option>
+          <option value="size" {% if sort == 'size' %}selected{% endif %}>视频大小</option>
+          <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>最旧优先</option>
+        </select>
+        <button type="submit">应用</button>
+      </form>
+    </section>
+
+    {% set show_virtual_card =
+      show_admin_only_entry
+      and data.page == data.pages
+    %}
+    {% if data["items"] or show_virtual_card %}
+    <section class="video-grid">
+      {% for video in data["items"] %}
+      <article class="video-card-shell">
+        <div class="video-card">
+          <a
+            class="video-card-media"
+            href="/watch/{{ video.id }}?return_to={{ return_to|urlencode }}"
+          >
+            {{ video_thumb(video) }}
+          </a>
+          <div class="card-body">
+            <a
+              class="card-title-link"
+              href="/watch/{{ video.id }}?return_to={{ return_to|urlencode }}"
+            >
+              <h2 title="{{ video.display_title or video.title }}">{{ video.display_title or video.title }}</h2>
+            </a>
+            <div class="card-meta-row">
+              <p>
+                {% if video.card_kind == "season" %}
+                  {{ video.episode_count }} 集 · 已下载 {{ video.available_episode_count }} 集
+                {% else %}
+                  {{ video.size|filesize }} · {{ video.duration|duration }}
+                {% endif %}
+              </p>
+              {% if is_admin %}
+              <button
+                class="change-cover-button"
+                type="button"
+                data-video-id="{{ video.id }}"
+                data-video-title="{{ video.title }}"
+              >更换封面</button>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+
+      {% if show_virtual_card %}
+      <article class="video-card-shell admin-only-card-shell">
+        <a class="video-card admin-only-virtual-card" href="/admin-videos">
+          <div class="admin-only-virtual-media" aria-hidden="true">
+            <div class="admin-only-emblem">
+              <span>V</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <h2>专属视频</h2>
+            <div class="card-meta-row">
+              <p>
+                {{ admin_only_stats.total }} 部视频 ·
+                {{ admin_only_stats.total_bytes|filesize }}
+              </p>
+              <span class="admin-only-enter">查看内容 →</span>
+            </div>
+          </div>
+        </a>
+      </article>
+      {% endif %}
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>{{ empty_title }}</h2>
+      <p>{{ empty_message }}</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action=pager_action,
+      pager_params={"q": query, "sort": sort},
+      pager_input_id=pager_input_id
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+
+  </main>
+
+  {% if is_admin %}
+  <dialog id="cover-dialog" class="cover-dialog">
+    <div class="cover-dialog-card">
+      <header class="cover-dialog-header">
+        <div>
+          <p class="eyebrow">COVER SELECTOR</p>
+          <h2 id="cover-dialog-title">选择视频封面</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" aria-label="关闭封面选择">×</button>
+      </header>
+
+      <div class="cover-player-shell">
+        <video id="cover-preview-player" controls muted playsinline preload="metadata"></video>
+        <p id="cover-dialog-status" class="cover-dialog-status"></p>
+      </div>
+
+      <footer class="cover-dialog-footer">
+        <span id="cover-time-label">当前画面：00:00</span>
+        <div class="cover-dialog-actions">
+          <button id="restore-cover-button" class="cover-secondary-button" type="button">恢复自动封面</button>
+          <button id="save-cover-button" type="button">使用当前画面</button>
+        </div>
+      </footer>
+    </div>
+  </dialog>
+  {% endif %}
+  <script src="/static/cover.js"></script>
+  <script src="/static/hover-preview.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="account-page">
+  <main class="account-card">
+    <a class="brand account-brand" href="/">
+      <span class="brand-mark">V</span>
+      <span class="brand-text">LOCAL <em>VIDEO</em></span>
+    </a>
+    <p class="eyebrow">ACCOUNT LOGIN</p>
+    <h1>登录</h1>
+    <form method="post" action="/login" class="account-form">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <label>用户名<input name="username" autocomplete="username" required autofocus></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+      <label class="account-check"><input name="remember" type="checkbox" value="1"> 保持登录</label>
+      {% if error %}<p class="account-error">{{ error }}</p>{% endif %}
+      <button class="download-primary-button" type="submit">登录</button>
+    </form>
+    <p class="stats">游客可以浏览和播放视频。收藏及管理操作需要登录。</p>
+    {% if default_admin_pending %}
+    <p class="account-error">
+      当前使用首次初始化账号 admin / 123456。登录后必须立即修改密码。
+    </p>
+    {% endif %}
+    {% if setup_available %}
+    <p class="account-success">站点尚未创建账号。<a href="/setup">创建首个管理员</a></p>
+    {% endif %}
+    <a class="back-link" href="/">返回视频首页</a>
+  </main>
+</body>
+</html>

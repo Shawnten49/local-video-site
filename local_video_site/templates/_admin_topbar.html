@@ -1,0 +1,55 @@
+<header class="site-header compact topbar admin-topbar">
+  <a class="brand" href="/">
+    <span class="brand-mark">V</span>
+    <span class="brand-text">LOCAL <em>VIDEO</em></span>
+  </a>
+  <nav class="admin-topbar-nav" aria-label="后台导航">
+    {% if identity.is_admin %}
+    <a
+      class="category-button admin-nav-button manage-video-nav-button{% if active_page == 'videos' %} is-active{% endif %}"
+      href="/manage/videos"
+      {% if active_page == 'videos' %}aria-current="page"{% endif %}
+    >视频管理</a>
+    <a
+      class="category-button admin-nav-button{% if active_page == 'series' %} is-active{% endif %}"
+      href="/manage/series"
+      {% if active_page == 'series' %}aria-current="page"{% endif %}
+    >视频集管理</a>
+    <a
+      class="category-button admin-nav-button{% if active_page == 'deletes' %} is-active{% endif %}"
+      href="/manage/delete-tasks"
+      {% if active_page == 'deletes' %}aria-current="page"{% endif %}
+    >视频删除</a>
+    {% endif %}
+    <a
+      class="category-button admin-nav-button download-nav-button{% if active_page == 'downloads' %} is-active{% endif %}"
+      href="/downloads"
+      {% if active_page == 'downloads' %}aria-current="page"{% endif %}
+    >
+      下载模块
+      {% if download_counts.active %}
+      <span class="download-count">{{ download_counts.active }}</span>
+      {% endif %}
+    </a>
+    {% if identity.is_admin %}
+    <a
+      class="category-button admin-nav-button account-management-nav-button{% if active_page == 'users' %} is-active{% endif %}"
+      href="/manage/users"
+      {% if active_page == 'users' %}aria-current="page"{% endif %}
+    >账号管理</a>
+    <a
+      class="category-button admin-nav-button settings-nav-button{% if active_page == 'settings' %} is-active{% endif %}"
+      href="/manage/settings"
+      {% if active_page == 'settings' %}aria-current="page"{% endif %}
+    >参数配置</a>
+    {% endif %}
+  </nav>
+  <div class="admin-session-actions">
+    <a class="category-button admin-identity-button" href="/account">
+      {{ identity.username }}
+    </a>
+    <form class="header-logout-form" method="post" action="/logout">
+      <button class="category-button" type="submit">退出</button>
+    </form>
+  </div>
+</header>

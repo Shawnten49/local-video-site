@@ -1,0 +1,22 @@
+{% macro video_thumb(video) -%}
+<div
+  class="thumb{% if video.preview_available %} hover-preview{% endif %}"
+  {% if video.preview_available %}
+  data-preview-url="/preview/{{ video.id }}?v={{ (video.preview_updated_at or video.updated_at)|urlencode }}"
+  {% endif %}
+>
+  <img src="/thumb/{{ video.id }}?v={{ (video.cover_updated_at or video.updated_at)|urlencode }}" alt="" loading="lazy">
+  {% if video.preview_available %}
+  <video
+    class="hover-preview-video"
+    muted
+    loop
+    playsinline
+    preload="none"
+    aria-hidden="true"
+  ></video>
+  {% endif %}
+  <span class="duration">{{ video.duration|duration }}</span>
+  <span class="quality">{{ video.width|resolution(video.height) }}</span>
+</div>
+{%- endmacro %}

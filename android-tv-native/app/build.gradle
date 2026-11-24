@@ -1,0 +1,80 @@
+plugins {
+    id "com.android.application"
+    id "org.jetbrains.kotlin.android"
+    id "org.jetbrains.kotlin.plugin.compose"
+}
+
+def defaultServerUrl =
+    project.findProperty("LOCAL_VIDEO_SERVER_URL")
+    ?: "http://10.0.2.2:8766/"
+
+android {
+    namespace "com.shawn.localvideotv"
+    compileSdk 35
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        applicationId "com.shawn.localvideotv"
+        minSdk 28
+        targetSdk 35
+        versionCode 27
+        versionName "2.4.0"
+
+        buildConfigField "String", "DEFAULT_SERVER_URL", "\"${defaultServerUrl}\""
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            // Personal sideload build: keep updates compatible with the local install.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    packaging {
+        resources {
+            excludes += ["/META-INF/{AL2.0,LGPL2.1}"]
+        }
+    }
+}
+
+dependencies {
+    implementation platform("androidx.compose:compose-bom:2024.09.03")
+    androidTestImplementation platform("androidx.compose:compose-bom:2024.09.03")
+
+    implementation "androidx.activity:activity-compose:1.9.2"
+    implementation "androidx.compose.foundation:foundation"
+    implementation "androidx.compose.material3:material3"
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.ui:ui-tooling-preview"
+    implementation "androidx.tv:tv-material:1.0.1"
+
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.8.6"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6"
+
+    implementation "androidx.media3:media3-exoplayer:1.4.1"
+    implementation "androidx.media3:media3-ui:1.4.1"
+
+    implementation "io.coil-kt:coil-compose:2.7.0"
+    implementation "com.squareup.retrofit2:retrofit:2.11.0"
+    implementation "com.squareup.retrofit2:converter-gson:2.11.0"
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+
+    debugImplementation "androidx.compose.ui:ui-tooling"
+}

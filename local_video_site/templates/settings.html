@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>参数配置 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261124-settings">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="settings-page">
+    <section class="settings-hero">
+      <div>
+        <p class="eyebrow">RUNTIME SETTINGS</p>
+        <h1>参数配置</h1>
+        <p class="stats">集中管理安全、下载、扫描、媒体和存储策略。环境变量锁定的值保持只读。</p>
+      </div>
+      <div class="settings-hero-note">
+        <strong>优先级</strong>
+        <span>环境变量 → 数据库覆盖 → 代码默认值</span>
+      </div>
+    </section>
+
+    <section class="settings-toolbar">
+      <label class="settings-search">
+        <span>搜索参数</span>
+        <input id="settings-search" type="search" placeholder="名称、键名或说明">
+      </label>
+      <label class="settings-advanced-toggle">
+        <input id="settings-show-advanced" type="checkbox" checked>
+        <span>显示高级参数</span>
+      </label>
+    </section>
+
+    <div class="settings-layout">
+      <aside class="settings-sidebar">
+        <p class="eyebrow">CATEGORIES</p>
+        <div id="settings-category-list" class="settings-category-list">
+          <button type="button" class="settings-category is-active" data-category="">全部参数</button>
+          {% for category in categories %}
+          <button type="button" class="settings-category" data-category="{{ category.key }}">
+            <span>{{ category.label }}</span>
+            <small>{{ category.count }}</small>
+          </button>
+          {% endfor %}
+        </div>
+      </aside>
+
+      <section class="settings-panel">
+        <div class="settings-panel-heading">
+          <div>
+            <p class="eyebrow">CONFIGURATION</p>
+            <h2 id="settings-current-title">全部参数</h2>
+          </div>
+          <span id="settings-count" class="settings-count">加载中</span>
+        </div>
+
+        <p id="settings-error" class="settings-error" hidden></p>
+        <p id="settings-notice" class="settings-notice" hidden></p>
+
+        <div class="settings-table-wrap">
+          <table class="settings-table">
+            <thead>
+              <tr>
+                <th>参数</th>
+                <th>当前值</th>
+                <th>来源</th>
+                <th>生效方式</th>
+                <th>更新时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="settings-table-body">
+              <tr><td colspan="6" class="settings-empty">正在加载参数…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="setting-edit-dialog" class="settings-dialog">
+    <form id="setting-edit-form" method="dialog">
+      <header>
+        <div>
+          <p class="eyebrow">EDIT SETTING</p>
+          <h2 id="setting-dialog-title">修改参数</h2>
+        </div>
+        <button type="button" class="settings-dialog-close" data-close-setting-dialog>×</button>
+      </header>
+      <p id="setting-dialog-description" class="settings-dialog-description"></p>
+      <div id="setting-value-field" class="settings-value-field"></div>
+      <label>
+        <span>修改备注</span>
+        <textarea id="setting-edit-note" rows="3" maxlength="500"></textarea>
+      </label>
+      <div class="settings-dialog-meta">
+        <span>键名 <code id="setting-dialog-key"></code></span>
+        <span>生效 <strong id="setting-dialog-apply"></strong></span>
+      </div>
+      <p id="setting-dialog-error" class="settings-error" hidden></p>
+      <footer>
+        <button type="button" class="download-secondary-button" data-close-setting-dialog>取消</button>
+        <button id="setting-save-button" type="submit" class="download-primary-button">保存修改</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="setting-secret-dialog" class="settings-dialog">
+    <form id="setting-secret-form" method="dialog">
+      <header>
+        <div>
+          <p class="eyebrow">SECURITY SECRET</p>
+          <h2>设置删除校验码</h2>
+        </div>
+        <button type="button" class="settings-dialog-close" data-close-secret-dialog>×</button>
+      </header>
+      <p class="settings-dialog-description">校验码只保存为 PBKDF2 哈希。已有校验码时必须先验证当前值；忘记时可从本机 CLI 重置。</p>
+      <label id="current-delete-password-field">
+        <span>当前校验码</span>
+        <input id="current-delete-password" type="password" autocomplete="current-password">
+      </label>
+      <label>
+        <span>新校验码</span>
+        <input id="new-delete-password" type="password" autocomplete="new-password" required>
+      </label>
+      <label>
+        <span>再次输入新校验码</span>
+        <input id="confirm-delete-password" type="password" autocomplete="new-password" required>
+      </label>
+      <label>
+        <span>修改备注</span>
+        <textarea id="delete-password-note" rows="2" maxlength="500"></textarea>
+      </label>
+      <p id="delete-password-error" class="settings-error" hidden></p>
+      <footer>
+        <button type="button" class="download-secondary-button" data-close-secret-dialog>取消</button>
+        <button type="submit" class="download-primary-button settings-danger-button">保存校验码</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="setting-history-dialog" class="settings-dialog settings-history-dialog">
+    <header>
+      <div>
+        <p class="eyebrow">AUDIT HISTORY</p>
+        <h2 id="history-dialog-title">参数变更历史</h2>
+      </div>
+      <button type="button" class="settings-dialog-close" data-close-history-dialog>×</button>
+    </header>
+    <div id="setting-history-content" class="settings-history-content"></div>
+    <footer>
+      <button type="button" class="download-secondary-button" data-close-history-dialog>关闭</button>
+    </footer>
+  </dialog>
+
+  <script src="/static/settings.js"></script>
+</body>
+</html>

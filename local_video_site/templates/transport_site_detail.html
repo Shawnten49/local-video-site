@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ policy.display_name }} 站点策略</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/downloads/site-policies">返回站点策略</a>
+    </div>
+  </header>
+  <main class="download-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">{{ policy.site_key }}</p>
+        <h1>{{ policy.display_name }}</h1>
+        <p class="stats">{{ policy.domains|join(" · ") }}</p>
+      </div>
+      <div class="transport-detail-badges">
+        <span class="transport-badge mode-{{ policy.transport_mode }}">{{ policy.transport_mode }}</span>
+        <span class="transport-badge state-{{ policy.lifecycle_state|lower }}">{{ policy.lifecycle_state }}</span>
+      </div>
+    </section>
+
+    <p id="transport-notice" class="download-notice" aria-live="polite" hidden></p>
+
+    <section class="transport-panel">
+      <div class="watch-section-heading">
+        <div>
+          <p class="eyebrow">MEDIA SELECTION</p>
+          <h2>视频选择策略</h2>
+        </div>
+        <span class="transport-badge">
+          {{ media_policy.source_label }} · v{{ media_policy.version }}
+        </span>
+      </div>
+      <dl class="transport-info-list">
+        <div><dt>当前预设</dt><dd>{{ media_policy.preset_key }}</dd></div>
+        <div><dt>媒体来源</dt><dd>{{ media_policy.source_order|join(" → ") }}</dd></div>
+        <div><dt>身份校验</dt><dd>{{ media_policy.identity_mode }}</dd></div>
+        <div><dt>清晰度</dt><dd>{{ media_policy.quality_target }} · {{ media_policy.quality_fallback }}</dd></div>
+        <div><dt>格式策略</dt><dd>{{ media_format_strategy_labels.get(media_policy.format_strategy, media_policy.format_strategy) }}</dd></div>
+        <div><dt>允许页面兜底</dt><dd>{{ "是" if media_policy.allow_page_fallback else "否" }}</dd></div>
+        <div><dt>播放按钮</dt><dd>{{ media_policy.play_selector or "自动" }}</dd></div>
+      </dl>
+
+      <form id="media-policy-form" class="transport-site-form media-policy-form">
+        <input name="expected_version" type="hidden" value="{{ media_policy.version }}">
+        <div class="transport-form-grid transport-form-grid-2">
+          <label>
+            <span>策略预设</span>
+            <select name="preset_key">
+              {% for item in media_presets %}
+              <option value="{{ item.key }}" data-media-preset='{{ item.defaults|tojson }}' {% if item.key == media_policy.preset_key %}selected{% endif %}>{{ item.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>视频身份校验</span>
+            <select name="identity_mode">
+              <option value="site_default" {% if media_policy.identity_mode == "site_default" %}selected{% endif %}>站点默认（优先页面视频）</option>
+              <option value="page_id" {% if media_policy.identity_mode == "page_id" %}selected{% endif %}>必须匹配页面视频身份</option>
+              <option value="loose" {% if media_policy.identity_mode == "loose" %}selected{% endif %}>宽松（特殊站点）</option>
+            </select>
+          </label>
+        </div>
+        <div class="transport-form-grid transport-form-grid-2">
+          <label>
+            <span>媒体来源顺序（每行一个）</span>
+            <textarea name="source_order" rows="4">{{ media_policy.source_order|join("\n") }}</textarea>
+          </label>
+          <label>
+            <span>媒体类型顺序（每行一个）</span>
+            <textarea name="kind_order" rows="4">{{ media_policy.kind_order|join("\n") }}</textarea>
+          </label>
+        </div>
+        <div class="transport-form-grid transport-form-grid-3">
+          <label>
+            <span>默认清晰度</span>
+            <select name="quality_target">
+              {% for item in media_quality_targets %}
+              <option value="{{ item }}" {% if item == media_policy.quality_target %}selected{% endif %}>{{ media_quality_target_labels.get(item, item) }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>
+            <span>无对应档位时</span>
+            <select name="quality_fallback">
+              <option value="nearest_below" {% if media_policy.quality_fallback == "nearest_below" %}selected{% endif %}>优先最近的较低档</option>
+              <option value="best_effort" {% if media_policy.quality_fallback == "best_effort" %}selected{% endif %}>最接近的可用档位</option>
+              <option value="strict" {% if media_policy.quality_fallback == "strict" %}selected{% endif %}>仅使用精确档位</option>
+            </select>
+          </label>
+          <label>
+            <span>播放按钮选择器</span>
+            <input name="play_selector" value="{{ media_policy.play_selector }}" placeholder="可选 CSS 选择器">
+          </label>
+        </div>
+        <div class="transport-form-grid transport-form-grid-3">
+          <label>
+            <span>下载格式策略</span>
+            <select name="format_strategy">
+              {% for item in media_format_strategies %}
+              <option value="{{ item }}" {% if item == media_policy.format_strategy %}selected{% endif %}>{{ media_format_strategy_labels.get(item, item) }}</option>
+              {% endfor %}
+            </select>
+            <small>分离音视频适用于 Bilibili；高清权限跟随下载用 Chrome 的登录状态。</small>
+          </label>
+          <label>
+            <span>合并容器</span>
+            <select name="merge_output_format">
+              {% for item in media_merge_formats %}
+              <option value="{{ item }}" {% if item == media_policy.merge_output_format %}selected{% endif %}>{{ item|upper }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="transport-checkbox-field">
+            <span>优先 H.264 编码</span>
+            <input name="prefer_h264" type="checkbox" {% if media_policy.prefer_h264 %}checked{% endif %}>
+          </label>
+        </div>
+        <div class="transport-form-grid transport-form-grid-3">
+          <label><span>最低清晰度</span><input name="min_height" type="number" min="240" max="1080" value="{{ media_policy.min_height }}"></label>
+          <label><span>最高清晰度</span><input name="max_height" type="number" min="240" max="2160" value="{{ media_policy.max_height }}"></label>
+          <label class="transport-checkbox-field">
+            <span>低于最低档位时允许自动兜底</span>
+            <input name="allow_below_minimum" type="checkbox" {% if media_policy.allow_below_minimum %}checked{% endif %}>
+          </label>
+        </div>
+        <label class="transport-checkbox-field">
+          <span>嗅探不到媒体时允许交给 yt-dlp 页面解析</span>
+          <input name="allow_page_fallback" type="checkbox" {% if media_policy.allow_page_fallback %}checked{% endif %}>
+        </label>
+        <label class="transport-form-field">
+          <span>修改备注</span>
+          <textarea name="note" rows="2" placeholder="可选，记录本网站选择策略的调整原因"></textarea>
+        </label>
+        <div class="transport-policy-probe">
+          <label>
+            <span>试运行网页地址</span>
+            <input id="media-policy-probe-url" type="url" placeholder="https://example.com/video/123">
+          </label>
+          <button id="probe-media-policy" type="button" class="download-secondary-button">试运行当前策略</button>
+        </div>
+        <div id="media-policy-probe-result" class="transport-policy-probe-result" hidden></div>
+        <p id="media-policy-error" class="download-form-error"></p>
+        <footer class="download-dialog-footer">
+          <button id="reset-media-policy" type="button" class="download-secondary-button">恢复站点默认</button>
+          <button type="submit" class="download-primary-button">保存视频选择策略</button>
+        </footer>
+      </form>
+    </section>
+
+    <section class="transport-stat-grid">
+      <article><span>任务成功</span><strong>{{ policy.tasks_completed or 0 }}</strong></article>
+      <article><span>任务失败</span><strong>{{ policy.tasks_failed or 0 }}</strong></article>
+      <article><span>Range 成功</span><strong>{{ policy.range_successes or 0 }}</strong></article>
+      <article><span>Range 失败</span><strong>{{ policy.range_failures or 0 }}</strong></article>
+      <article><span>资格通过</span><strong>{{ policy.qualification_successes or 0 }}</strong></article>
+      <article><span>yt-dlp 回退</span><strong>{{ policy.ytdlp_fallbacks or 0 }}</strong></article>
+      <article><span>累计下载</span><strong>{{ format_bytes(policy.downloaded_bytes or 0) }}</strong></article>
+      <article><span>最大文件</span><strong>{{ format_bytes(policy.largest_file_bytes or 0) }}</strong></article>
+    </section>
+
+    <section class="transport-panel">
+      <div class="watch-section-heading">
+        <h2>人工操作</h2>
+        <span class="transport-breaker breaker-{{ policy.breaker_state|lower }}">{{ policy.breaker_state }}</span>
+      </div>
+      <label>操作备注<input id="transport-action-note" placeholder="提升为 VERIFIED 时必填"></label>
+      <div class="transport-action-grid">
+        {% for action, label in [
+          ("promote_candidate", "提升为 Candidate"),
+          ("promote_verified", "提升为 Verified"),
+          ("demote_unknown", "降级为 Unknown"),
+          ("force_direct_range", "强制 Direct Range"),
+          ("force_ytdlp", "强制 yt-dlp"),
+          ("disable", "禁用 Direct Range"),
+          ("recheck", "重新验证"),
+          ("clear_breaker", "清除熔断"),
+          ("reset_stats", "重置统计")
+        ] %}
+        <button type="button" class="transport-action-button{% if action in ("disable", "reset_stats") %} is-danger{% endif %}" data-transport-action="{{ action }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="transport-panel">
+      <h2>策略信息</h2>
+      <dl class="transport-info-list">
+        <div><dt>策略版本</dt><dd>{{ policy.policy_version }}</dd></div>
+        <div><dt>连接配置</dt><dd>{{ policy.initial_connections }} → {{ policy.max_connections }}</dd></div>
+        <div><dt>TLS 后端</dt><dd>{{ policy.tls_backend }}</dd></div>
+        <div><dt>最近成功</dt><dd>{{ policy.last_success_at or "—" }}</dd></div>
+        <div><dt>最近失败</dt><dd>{{ policy.last_failure_at or "—" }}</dd></div>
+        <div><dt>备注</dt><dd>{{ policy.status_note or "—" }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="transport-panel">
+      <h2>最近下载任务</h2>
+      <div class="transport-table-wrap">
+        <table class="transport-table">
+          <thead><tr><th>ID</th><th>标题</th><th>清晰度</th><th>选择</th><th>传输</th><th>状态</th><th>进度</th><th>大小</th><th>消息</th></tr></thead>
+          <tbody>
+            {% for task in tasks %}
+            <tr>
+              <td>#{{ task.id }}</td>
+              <td><a href="/downloads?q={{ task.url|urlencode }}">{{ task.title or task.url }}</a></td>
+              <td>{{ task.media_quality or ("跟随站点" if task.requested_quality == "site" else task.requested_quality) }}</td>
+              <td>
+                {{ task.media_strategy_key or "—" }}
+                {% if task.selected_candidate_source %}
+                <small>{{ task.selected_candidate_source }} / {{ task.selected_candidate_kind }}</small>
+                {% endif %}
+              </td>
+              <td>{{ task.transport_kind or "—" }}</td>
+              <td>{{ task.status }}</td>
+              <td>{{ "%.1f"|format(task.progress_percent or 0) }}%</td>
+              <td>{{ format_bytes(task.total_bytes or task.downloaded_bytes or 0) }}</td>
+              <td>{{ task.message or "—" }}</td>
+            </tr>
+            {% else %}<tr><td colspan="9">暂无任务。</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="transport-panel">
+      <h2>最近事件</h2>
+      <ul class="transport-event-list">
+        {% for event in events %}
+        <li><strong>{{ event.event_type }}</strong><span>{{ event.reason_code or "" }}</span><small>{{ event.created_at }}</small></li>
+        {% else %}<li>暂无事件。</li>{% endfor %}
+      </ul>
+    </section>
+
+    <section class="transport-panel">
+      <h2>审计记录</h2>
+      <ul class="transport-event-list">
+        {% for item in audit %}
+        <li><strong>{{ item.action }}</strong><span>{{ item.note or "" }}</span><small>{{ item.created_at }}</small></li>
+        {% else %}<li>暂无人工操作。</li>{% endfor %}
+      </ul>
+    </section>
+  </main>
+  <dialog id="transport-action-confirm" class="metadata-confirm-dialog">
+    <div class="metadata-confirm-card">
+      <p class="eyebrow">CONFIRM POLICY CHANGE</p>
+      <h2 id="transport-action-confirm-title">确认修改站点策略？</h2>
+      <p id="transport-action-confirm-message" class="metadata-confirm-message"></p>
+      <div class="metadata-confirm-actions">
+        <button id="cancel-transport-action" class="cover-secondary-button" type="button">取消</button>
+        <button id="confirm-transport-action" class="metadata-confirm-primary" type="button">确认</button>
+      </div>
+    </div>
+  </dialog>
+  <script src="/static/transport-detail.js"></script>
+</body>
+</html>

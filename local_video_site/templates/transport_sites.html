@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>站点策略 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/downloads">返回下载管理</a>
+    </div>
+  </header>
+
+  <main class="download-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">TRANSPORT POLICIES</p>
+        <h1>站点策略</h1>
+        <p class="stats">
+          共 {{ policies|length }} 个站点 ·
+          已验证 {{ policies|selectattr("lifecycle_state", "equalto", "VERIFIED")|list|length }} ·
+          候选 {{ policies|selectattr("lifecycle_state", "equalto", "CANDIDATE")|list|length }} ·
+          Unknown {{ policies|selectattr("lifecycle_state", "equalto", "UNKNOWN")|list|length }}
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <button id="show-transport-guide" class="download-policy-button" type="button">
+          配置说明
+        </button>
+        <button id="new-transport-site" class="download-primary-button" type="button">
+          新增站点
+        </button>
+      </div>
+    </section>
+
+    <p id="transport-notice" class="download-notice" aria-live="polite" hidden></p>
+
+    <form class="filters download-filters" method="get" action="/downloads/site-policies">
+      <input type="search" name="q" value="{{ query }}" placeholder="搜索站点、域名">
+      <select name="state" aria-label="生命周期状态">
+        <option value="">全部状态</option>
+        {% for item in states %}
+        <option value="{{ item }}" {% if state_filter == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+      <select name="mode" aria-label="传输模式">
+        <option value="">全部模式</option>
+        {% for item in modes %}
+        <option value="{{ item }}" {% if mode_filter == item %}selected{% endif %}>{{ item }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">查询</button>
+      {% if query or state_filter or mode_filter %}
+      <a class="category-button" href="/downloads/site-policies">清除</a>
+      {% endif %}
+    </form>
+
+    <section class="transport-table-wrap">
+      <table class="transport-table">
+        <thead>
+          <tr>
+            <th>站点</th>
+            <th>模式 / 状态</th>
+            <th>视频选择</th>
+            <th>熔断</th>
+            <th>连接</th>
+            <th>TLS</th>
+            <th>任务</th>
+            <th>Range 成功 / 失败</th>
+            <th>回退</th>
+            <th>下载量</th>
+            <th>最近活动</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for policy in policies %}
+          <tr>
+            <td>
+              <a class="transport-site-link" href="/downloads/site-policies/{{ policy.site_key }}">
+                <strong>{{ policy.display_name }}</strong>
+                <small>{{ policy.site_key }}</small>
+              </a>
+              <small class="transport-domains">{{ policy.domains|join(", ") }}</small>
+            </td>
+            <td>
+              <span class="transport-badge mode-{{ policy.transport_mode }}">{{ policy.transport_mode }}</span>
+              <span class="transport-badge state-{{ policy.lifecycle_state|lower }}">{{ policy.lifecycle_state }}</span>
+            </td>
+            <td>
+              <strong>{{ policy.media_policy.preset_key }}</strong>
+              <small>{{ policy.media_policy.source_label }} · {{ policy.media_policy.quality_target }}</small>
+            </td>
+            <td><span class="transport-breaker breaker-{{ policy.breaker_state|lower }}">{{ policy.breaker_state }}</span></td>
+            <td>{{ policy.initial_connections }} → {{ policy.max_connections }}</td>
+            <td>{{ policy.tls_backend }}</td>
+            <td>{{ policy.tasks_completed or 0 }} / {{ policy.tasks_failed or 0 }}</td>
+            <td>{{ policy.range_successes or 0 }} / {{ policy.range_failures or 0 }}</td>
+            <td>{{ policy.ytdlp_fallbacks or 0 }}</td>
+            <td>{{ format_bytes(policy.downloaded_bytes or 0) }}</td>
+            <td>
+              <small>成功 {{ (policy.last_success_at or "—")[:19] }}</small>
+              <small>失败 {{ (policy.last_failure_at or "—")[:19] }}</small>
+            </td>
+            <td class="transport-actions-cell">
+              <button
+                type="button"
+                class="transport-edit-button"
+                data-edit-transport-site="{{ policy.site_key }}"
+              >编辑</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="12">没有匹配的站点策略。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <dialog id="transport-site-dialog" class="download-dialog">
+    <form id="transport-site-form" class="download-dialog-card transport-site-form">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">NEW SITE POLICY</p>
+          <h2>新增站点策略</h2>
+        </div>
+        <button type="button" class="cover-dialog-close" data-close-transport-dialog>×</button>
+      </header>
+      <div class="transport-form-grid transport-form-grid-2">
+        <label>
+          <span>站点名称</span>
+          <input name="display_name" required autocomplete="off">
+        </label>
+        <label>
+          <span>站点键</span>
+          <input name="site_key" required placeholder="example.com" autocomplete="off">
+        </label>
+      </div>
+      <label class="transport-form-field">
+        <span>域名列表</span>
+        <textarea name="domains" rows="3" required placeholder="每行填写一个域名&#10;example.com&#10;www.example.com"></textarea>
+      </label>
+      <div class="transport-form-grid transport-form-grid-2">
+        <label>
+          <span>传输模式</span>
+          <select name="transport_mode">
+            {% for item in modes %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>初始状态</span>
+          <select name="lifecycle_state">
+            {% for item in states %}<option value="{{ item }}" {% if item == "UNKNOWN" %}selected{% endif %}>{{ item }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="transport-form-grid transport-form-grid-3">
+        <label><span>初始连接</span><input name="initial_connections" type="number" min="1" max="2" value="2"></label>
+        <label><span>最高连接</span><input name="max_connections" type="number" min="2" max="4" value="4"></label>
+        <label>
+          <span>TLS 后端</span>
+          <select name="tls_backend">
+            <option value="auto">auto</option>
+            <option value="httpx">httpx</option>
+            <option value="curl_cffi">curl_cffi</option>
+          </select>
+        </label>
+      </div>
+      <label class="transport-form-field">
+        <span>备注</span>
+        <textarea name="note" rows="2" placeholder="可选，记录验证依据或人工说明"></textarea>
+      </label>
+      <p id="transport-site-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button type="button" class="download-secondary-button" data-close-transport-dialog>取消</button>
+        <button type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="transport-config-guide" class="transport-guide-dialog">
+    <div class="transport-guide-card">
+      <header class="transport-guide-header">
+        <div>
+          <p class="eyebrow">CONFIGURATION GUIDE</p>
+          <h2>站点策略配置说明</h2>
+        </div>
+        <button type="button" class="cover-dialog-close" data-close-transport-guide aria-label="关闭">×</button>
+      </header>
+
+      <section class="transport-guide-section">
+        <h3>传输模式</h3>
+        <dl>
+          <div><dt>auto</dt><dd>按站点状态自动决策；未知站点先做 Range 资格验证。若实际使用 HLS 下载成功，系统会把该站点从 auto 学习为 hls。</dd></div>
+          <div><dt>hls</dt><dd>发现 HLS 媒体时优先使用浏览器 HLS 分段下载；没有 HLS 时回退 yt-dlp。</dd></div>
+          <div><dt>direct-range</dt><dd>普通直链文件优先使用 HTTP Range 多连接下载；仍必须通过基础 Range 探测，失败时回退 yt-dlp。</dd></div>
+          <div><dt>yt-dlp</dt><dd>强制跳过自定义 HLS 和 Direct Range，当前任务使用 yt-dlp 通用下载流程。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>生命周期状态</h3>
+        <dl>
+          <div><dt>UNKNOWN</dt><dd>新发现站点。后续任务默认使用 yt-dlp，并尝试一次当前任务的严格 Range 资格验证。</dd></div>
+          <div><dt>TASK_QUALIFIED</dt><dd>已有当前级资格验证成功证据，但后续每次任务仍重新验证，不获得永久 Direct Range 权限。</dd></div>
+          <div><dt>CANDIDATE</dt><dd>已累计多个不同视频和断点恢复成功证据，等待人工确认；仍执行任务级资格验证。</dd></div>
+          <div><dt>VERIFIED</dt><dd>人工或内置确认的可信站点。后续任务默认尝试 Direct Range，但基础 Range 探测仍不可跳过。</dd></div>
+          <div><dt>QUARANTINED</dt><dd>发生过内容不一致等严重异常，后续使用 yt-dlp 并保留已有断点，等待人工处理或重新验证。</dd></div>
+          <div><dt>DISABLED</dt><dd>人工完全禁用 Direct Range，后续任务强制使用 yt-dlp。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>熔断状态</h3>
+        <dl>
+          <div><dt>CLOSED</dt><dd>正常状态，策略可以按模式和生命周期状态生效。</dd></div>
+          <div><dt>OPEN</dt><dd>临时熔断，Direct Range 暂停，冷却结束前后续任务使用 yt-dlp。</dd></div>
+          <div><dt>HALF_OPEN</dt><dd>冷却后的试探状态，只允许一次小范围验证；成功转回 CLOSED，失败重新 OPEN。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>TLS 后端</h3>
+        <dl>
+          <div><dt>auto</dt><dd>优先使用 httpx；遇到 TLS 协议错误或浏览器指纹拒绝时自动切换 curl_cffi Chrome 指纹。</dd></div>
+          <div><dt>httpx</dt><dd>只使用 httpx，不在 TLS 失败时自动切换；适合明确支持普通 Python HTTP 客户端的站点。</dd></div>
+          <div><dt>curl_cffi</dt><dd>直接使用 curl_cffi 和 Chrome TLS 指纹，适合 Cloudflare 或严格 TLS 指纹校验的 CDN。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>视频选择策略</h3>
+        <p>
+          视频选择先确认“哪个媒体是当前页面的主视频”，再决定使用哪个清晰度。
+          它和传输模式相互独立：视频选择负责候选与清晰度，传输模式负责如何下载。
+        </p>
+        <dl>
+          <div><dt>策略预设</dt><dd>可以选择 generic、xHamster、xVideos、Porntrex、PornOne 或 TNAflix 预设。选择预设后会带出对应默认值，仍可继续单独修改各项配置。</dd></div>
+          <div><dt>用户自定义优先</dt><dd>用户保存的站点媒体策略优先于站点内置预设；站点没有用户配置时使用内置预设，没有对应内置预设的站点使用 generic 兜底。</dd></div>
+          <div><dt>媒体来源顺序</dt><dd>按从上到下的顺序优先选择候选来源。可配置 player-config、network、video-element、performance；前面的来源会优先于后面的来源。</dd></div>
+          <div><dt>视频身份校验</dt><dd>site_default 优先使用能匹配当前页面视频身份的候选；page_id 要求必须匹配页面视频身份；loose 会放宽身份过滤，只建议用于确实无法识别页面 ID 的特殊站点。</dd></div>
+          <div><dt>媒体类型顺序</dt><dd>决定优先使用 hls、dash 还是 file。例如 HLS 优先适合分段流媒体，file 优先适合已验证的直链 MP4 站点。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>清晰度与兜底配置</h3>
+        <dl>
+          <div><dt>默认清晰度</dt><dd>下载任务选择“跟随站点策略”时使用该目标。auto 表示在允许范围内选择最高可用清晰度；1080p、720p、480p、360p 表示优先目标档位。</dd></div>
+          <div><dt>优先最近的较低档</dt><dd>没有目标档位时，先尝试低于目标的最高可用档位；如果没有任何较低档位，再使用范围内的其他可用档位。</dd></div>
+          <div><dt>最接近的可用档位</dt><dd>没有目标档位时，同时比较较低和较高档位，选择与目标差异最小的分辨率。</dd></div>
+          <div><dt>仅使用精确档位</dt><dd>不允许自动降级或升级。来源没有目标档位时该候选不可用，继续尝试其他候选或兜底流程。</dd></div>
+          <div><dt>最低 / 最高清晰度</dt><dd>限制自动选择范围，范围为 240p–2160p，最低值不能大于最高值。站点默认仍建议保持 1080p，只有明确选择 4K 时才提高任务上限。</dd></div>
+          <div><dt>低于最低档位时允许自动兜底</dt><dd>开启后，如果没有达到最低清晰度的媒体，auto 模式可以使用现有最佳画质；关闭后则拒绝低于最低档位的候选。</dd></div>
+          <div><dt>播放按钮选择器</dt><dd>可选 CSS 选择器。页面不会自动播放或播放器创建较晚时，可以指定需要点击的播放按钮。留空表示使用自动播放按钮识别。</dd></div>
+          <div><dt>允许 yt-dlp 页面解析兜底</dt><dd>媒体嗅探没有找到候选时，允许把原网页交给 yt-dlp 继续解析。该兜底只处理发现阶段，不会绕过内容身份校验和广告文件检查。</dd></div>
+        </dl>
+      </section>
+
+      <section class="transport-guide-section">
+        <h3>保存、试运行与任务快照</h3>
+        <dl>
+          <div><dt>试运行当前策略</dt><dd>在站点详情页输入该站点下的网页地址，系统会打开页面、发现并排序候选，显示来源、类型、清晰度、是否匹配页面视频以及最终选择；试运行不会下载文件。</dd></div>
+          <div><dt>任务策略快照</dt><dd>创建下载任务时保存当时的媒体策略和版本。之后修改站点策略不会影响已经创建或正在重试的任务，避免同一断点在运行过程中改用另一套选择规则。</dd></div>
+          <div><dt>恢复站点默认</dt><dd>删除该站点的用户媒体策略，恢复站点内置预设；未知站点恢复为 generic 兜底。</dd></div>
+        </dl>
+      </section>
+
+      <p class="transport-guide-footnote">
+        传输模式是下一次任务的策略偏好；最近任务实际使用的传输方式显示在任务表的“传输”一栏。
+        媒体策略与传输策略的新配置只影响之后创建或尚未保存策略快照的任务，不中断当前下载任务，也不删除已有断点。
+      </p>
+      <footer class="transport-guide-footer">
+        <button type="button" class="download-primary-button" data-close-transport-guide>知道了</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="transport-site-edit-dialog" class="download-dialog">
+    <form id="transport-site-edit-form" class="download-dialog-card transport-site-form">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">EDIT SITE POLICY</p>
+          <h2>编辑站点策略</h2>
+        </div>
+        <button type="button" class="cover-dialog-close" data-close-transport-edit>×</button>
+      </header>
+      <div class="transport-edit-readonly">
+        <span>站点键 <strong id="edit-transport-site-key"></strong></span>
+        <span>当前策略版本 <strong id="edit-transport-policy-version"></strong></span>
+      </div>
+      <div class="transport-form-grid transport-form-grid-2">
+        <label><span>站点名称</span><input name="display_name" required></label>
+        <label><span>站点键</span><input id="edit-transport-site-key-input" disabled></label>
+      </div>
+      <label class="transport-form-field">
+        <span>域名列表</span>
+        <textarea name="domains" rows="3" required></textarea>
+      </label>
+      <div class="transport-form-grid transport-form-grid-2">
+        <label>
+          <span>传输模式</span>
+          <select name="transport_mode">
+            {% for item in modes %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>
+          <span>生命周期状态</span>
+          <select name="lifecycle_state">
+            {% for item in states %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="transport-form-grid transport-form-grid-3">
+        <label><span>初始连接</span><input name="initial_connections" type="number" min="1" max="2" required></label>
+        <label><span>最高连接</span><input name="max_connections" type="number" min="2" max="4" required></label>
+        <label>
+          <span>TLS 后端</span>
+          <select name="tls_backend">
+            <option value="auto">auto</option>
+            <option value="httpx">httpx</option>
+            <option value="curl_cffi">curl_cffi</option>
+          </select>
+        </label>
+      </div>
+      <div class="transport-form-grid transport-form-grid-2">
+        <label>
+          <span>熔断状态</span>
+          <select name="breaker_state" id="edit-transport-breaker">
+            <option value="CLOSED">CLOSED</option>
+            <option value="OPEN">OPEN</option>
+            <option value="HALF_OPEN">HALF_OPEN</option>
+          </select>
+        </label>
+        <label id="edit-transport-cooldown-field" hidden>
+          <span>冷却时间</span>
+          <select name="cooldown_minutes">
+            <option value="30">30 分钟</option>
+            <option value="60">1 小时</option>
+            <option value="360">6 小时</option>
+            <option value="1440">24 小时</option>
+          </select>
+        </label>
+      </div>
+      <label class="transport-form-field">
+        <span>修改备注</span>
+        <textarea name="note" rows="2" placeholder="修改为 VERIFIED、QUARANTINED、DISABLED 或打开熔断时必填"></textarea>
+      </label>
+      <section class="transport-state-help">
+        <h3>状态修改说明</h3>
+        <ul>
+          <li><strong>VERIFIED：</strong>后续默认尝试 Direct Range，需填写备注并记录人工批准。</li>
+          <li><strong>UNKNOWN：</strong>清除永久 Direct Range 权限，后续任务重新资格验证。</li>
+          <li><strong>CANDIDATE：</strong>仍对每次任务执行资格验证，不会跳过安全探测。</li>
+          <li><strong>QUARANTINED：</strong>后续使用 yt-dlp，需填写隔离原因，已有断点不会删除。</li>
+          <li><strong>DISABLED：</strong>后续强制使用 yt-dlp，不影响当前运行任务。</li>
+          <li><strong>CLOSED：</strong>清除冷却和连续失败计数；<strong>OPEN：</strong>按冷却时间暂停 Direct Range；<strong>HALF_OPEN：</strong>下一次只允许一次验证。</li>
+          <li>所有修改只影响下一次任务，不中断当前下载或播放。</li>
+        </ul>
+      </section>
+      <p id="transport-site-edit-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button type="button" class="download-secondary-button" data-close-transport-edit>取消</button>
+        <button id="save-transport-site-edit" type="submit">保存修改</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="transport-edit-discard-dialog" class="metadata-confirm-dialog">
+    <div class="metadata-confirm-card">
+      <p class="eyebrow">UNSAVED CHANGES</p>
+      <h2>放弃未保存的修改？</h2>
+      <p class="metadata-confirm-message">当前表单仍有未保存内容。</p>
+      <div class="metadata-confirm-actions">
+        <button id="continue-transport-edit" class="cover-secondary-button" type="button">继续编辑</button>
+        <button id="discard-transport-edit" class="danger-button" type="button">放弃修改</button>
+      </div>
+    </div>
+  </dialog>
+  <script src="/static/transport-sites.js"></script>
+</body>
+</html>

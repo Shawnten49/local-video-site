@@ -1,0 +1,44 @@
+{% macro page_url(target) -%}
+{{ pager_action }}?{% for key, value in pager_params.items() %}{% if value %}{{ key }}={{ value|urlencode }}&{% endif %}{% endfor %}page={{ target }}
+{%- endmacro %}
+
+{% if pagination["pages"] > 1 %}
+{% set current_page = pagination["page"] %}
+{% set last_page = pagination["pages"] %}
+<nav class="pagination" aria-label="分页">
+  {% if current_page > 1 %}
+    <a href="{{ page_url(1) }}">首页</a>
+    <a href="{{ page_url(current_page - 1) }}">上一页</a>
+  {% else %}
+    <span class="pagination-link is-disabled" aria-disabled="true">首页</span>
+    <span class="pagination-link is-disabled" aria-disabled="true">上一页</span>
+  {% endif %}
+
+  <form class="page-selector" method="get" action="{{ pager_action }}">
+    {% for key, value in pager_params.items() %}
+      {% if value %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}
+    {% endfor %}
+    <label for="{{ pager_input_id }}">第</label>
+    <select
+      id="{{ pager_input_id }}"
+      name="page"
+      aria-label="选择页码"
+      data-auto-submit
+    >
+      {% for page_number in range(1, last_page + 1) %}
+        <option value="{{ page_number }}" {% if page_number == current_page %}selected{% endif %}>{{ page_number }}</option>
+      {% endfor %}
+    </select>
+    <span>/ {{ last_page }} 页</span>
+  </form>
+
+  {% if current_page < last_page %}
+    <a href="{{ page_url(current_page + 1) }}">下一页</a>
+    <a href="{{ page_url(last_page) }}">尾页</a>
+  {% else %}
+    <span class="pagination-link is-disabled" aria-disabled="true">下一页</span>
+    <span class="pagination-link is-disabled" aria-disabled="true">尾页</span>
+  {% endif %}
+</nav>
+<script src="/static/pagination.js?v=20261120-security"></script>
+{% endif %}

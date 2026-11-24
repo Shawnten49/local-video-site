@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>外盘扫描 {{ scan.scan_id }} · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261116-external-scan">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/manage/videos/external-scan">返回扫描外盘视频</a>
+    </div>
+  </header>
+
+  <main
+    class="download-page management-page"
+    id="external-scan-detail"
+    data-scan-id="{{ scan.scan_id }}"
+    data-target-season-id="{{ scan.target_season_id or '' }}"
+  >
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">EXTERNAL SCAN RESULT</p>
+        <h1>{{ "视频集扫描" if scan.scan_mode == "collection" else ("单视频扫描" if scan.scan_mode == "file" else "普通批量扫描") }}</h1>
+        <p class="stats">
+          <code>{{ scan.scan_id }}</code> ·
+          {{ scan.source_path }} ·
+          访问级别 {{ scan.access_level }} · {{ access_level_labels[scan.access_level] }}
+        </p>
+        {% if scan.target_series_id %}
+        <p class="stats external-scan-target-summary">
+          扫描来源：{{ scan.series_name or "—" }} ·
+          加入视频集：
+          <a href="/manage/series/{{ scan.target_series_id }}">
+            #{{ scan.target_series_id }}
+            {{ scan.target_series_name or "目标视频集不可用" }}
+          </a>
+        </p>
+        {% endif %}
+        {% if scan.target_season_id %}
+        <p class="stats external-scan-target-summary">
+          加入视频季：
+          <a href="/manage/series/{{ scan.target_season_series_id }}/seasons/{{ scan.target_season_id }}">
+            {{ scan.target_season_series_name or "视频集不可用" }} ·
+            {{ scan.target_season_name or "视频季不可用" }}
+          </a>
+          {% if scan.target_season_number %}
+          · 第 {{ scan.target_season_number }} 季
+          {% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <div class="download-heading-actions">
+        <span id="external-scan-status" class="migration-status status-{{ scan.status }}">{{ scan.status_label }}</span>
+      </div>
+    </section>
+
+    <section class="external-scan-progress-card">
+      <div class="external-scan-progress-heading">
+        <div>
+          <span id="external-scan-stage">{{ scan.stage_label }}</span>
+          <small>
+            已处理 <b id="external-scan-processed">{{ scan.processed_files }}</b>
+            / <b id="external-scan-total">{{ scan.total_files }}</b>
+            · 可入库 <b id="external-scan-ready">{{ scan.ready_files }}</b>
+            · 失败 <b id="external-scan-failed">{{ scan.failed_files }}</b>
+            · 已入库 <b id="external-scan-imported">{{ scan.imported_files }}</b>
+          </small>
+        </div>
+        <strong id="external-scan-progress-text">{{ scan.progress_percent|round(1) }}%</strong>
+      </div>
+      <div class="download-progress-track">
+        <span id="external-scan-progress-bar" style="width: {{ scan.progress_percent }}%"></span>
+      </div>
+      <p id="external-scan-detail-error" class="download-form-error" role="alert">
+        {{ scan.error_detail or "" }}
+      </p>
+    </section>
+
+    <section class="external-scan-toolbar">
+      {% if scan.status in ("pending", "running") %}
+      <button id="cancel-external-scan" class="download-policy-button" type="button">
+        取消扫描
+      </button>
+      {% endif %}
+      {% if scan.status in ("failed", "partial") %}
+      <button id="retry-external-scan" class="download-policy-button" type="button">
+        重试失败项
+      </button>
+      {% endif %}
+      {% if scan.status == "review" %}
+      <label class="external-scan-select-all">
+        <input id="external-scan-select-all" type="checkbox" checked>
+        全选可入库视频
+      </label>
+      <button id="commit-external-scan" class="download-primary-button" type="button">
+        加入视频库
+      </button>
+      {% endif %}
+      <a class="download-secondary-button" href="/manage/videos">返回视频管理</a>
+    </section>
+
+    {% if scan.scan_mode == "collection" %}
+    <section id="external-scan-items-section" class="external-scan-detail-groups">
+      {% for season_number, season_items in scan["items"]|groupby("season_number") %}
+      <article class="external-scan-detail-season">
+        <header>
+          <div>
+            <p class="eyebrow">SEASON {{ season_number }}</p>
+            <h2>{{ season_items[0].season_name or ("第" ~ season_number ~ "季") }}</h2>
+          </div>
+          <span>{{ season_items|length }} 集 · 访问级别 {{ scan.access_level }}</span>
+        </header>
+        <div class="external-scan-detail-season-list">
+          {% for item in season_items %}
+          <div class="external-scan-detail-season-row">
+            <strong>{{ "%02d"|format(item.episode_number or 0) }}</strong>
+            <div>
+              <span>{{ item.file_name }}</span>
+              <small title="{{ item.source_path }}">{{ item.source_path }}</small>
+            </div>
+            <small>{{ item.duration|duration }}</small>
+            <small>{{ item.width|resolution(item.height) }}</small>
+            <small>{{ item.video_codec or "未知" }} / {{ item.audio_codec or "未知" }}</small>
+            <span class="external-scan-item-state status-{{ item.status }}">{{ item.status_label }}</span>
+            {% if item.video_id %}
+            <a href="/manage/videos?q={{ item.video_id }}">#{{ item.video_id }}</a>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section id="external-scan-items-section" class="download-table-wrap management-table-wrap">
+      <table class="download-table external-scan-items-table">
+        <thead>
+          <tr>
+            <th class="external-scan-choice-column">
+              {{ "选择" if scan.status == "review" else "状态" }}
+            </th>
+            <th>预览</th>
+            <th>文件</th>
+            <th>集数</th>
+            <th>时长 / 画质 / 编码</th>
+            <th>大小</th>
+            <th>访问级别</th>
+            <th>结果</th>
+          </tr>
+        </thead>
+        <tbody id="external-scan-items">
+          {% for item in scan["items"] %}
+          <tr data-scan-item="{{ item.id }}">
+            <td>
+              {% if scan.status == "review" and item.status in ("ready", "selected") %}
+              <input
+                type="checkbox"
+                class="external-scan-item-select"
+                value="{{ item.id }}"
+                checked
+              >
+              {% else %}
+              <span class="external-scan-item-state status-{{ item.status }}">{{ item.status_label }}</span>
+              {% endif %}
+            </td>
+            <td class="external-scan-preview-cell">
+              {% if item.thumbnail_url %}
+              <img src="{{ item.thumbnail_url }}" alt="">
+              {% endif %}
+              {% if item.preview_url %}
+              <video src="{{ item.preview_url }}" muted loop playsinline preload="none"></video>
+              {% endif %}
+            </td>
+            <td class="management-path-cell">
+              <strong>{{ item.file_name }}</strong>
+              <small title="{{ item.source_path }}">{{ item.source_path }}</small>
+            </td>
+            <td>
+              {% if scan.target_season_id and scan.status == "review" and item.status in ("ready", "selected") %}
+              <input
+                class="external-scan-episode-input"
+                type="number"
+                min="1"
+                step="1"
+                value="{{ item.episode_number or '' }}"
+                aria-label="第 {{ loop.index }} 个视频的集数"
+              >
+              {% elif item.episode_number %}
+              {{ item.season_name }} · 第{{ item.episode_number }}集
+              {% else %}
+              —
+              {% endif %}
+            </td>
+            <td>
+              <small>{{ item.duration|duration }}</small>
+              <small>{{ item.width|resolution(item.height) }}</small>
+              <small>{{ item.video_codec or "未知" }} / {{ item.audio_codec or "未知" }}</small>
+            </td>
+            <td>{{ item.size|filesize }}</td>
+            <td>
+              {% if scan.status == "review" and item.status in ("ready", "selected") %}
+              <select class="external-scan-item-access" aria-label="访问级别">
+                {% for level in access_levels %}
+                <option value="{{ level }}" {% if item.access_level == level %}selected{% endif %}>
+                  {{ level }} · {{ access_level_labels[level] }}
+                </option>
+                {% endfor %}
+              </select>
+              {% else %}
+              {{ item.access_level }} · {{ access_level_labels[item.access_level] }}
+              {% endif %}
+            </td>
+            <td>
+              {% if item.video_id %}
+              <a href="/manage/videos?q={{ item.video_id }}">#{{ item.video_id }}</a>
+              {% endif %}
+              {% if item.error_detail %}
+              <small class="migration-error" title="{{ item.error_detail }}">{{ item.error_detail }}</small>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+  </main>
+
+  <script src="/static/external-scan-detail.js?v=20261120-target-season"></script>
+</body>
+</html>

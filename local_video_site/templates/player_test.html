@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>播放器兼容测试 · {{ video.title }}</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-movi-player">
+  <style>
+    .player-compare-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .player-compare-card {
+      min-width: 0;
+      padding: 1rem;
+      border: 1px solid rgba(255, 255, 255, .12);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .035);
+    }
+    .player-compare-card video,
+    .player-compare-card movi-player {
+      width: 100%;
+      min-height: 280px;
+      background: #000;
+      border-radius: 10px;
+    }
+    @media (max-width: 900px) {
+      .player-compare-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/watch/{{ video.id }}">返回播放页</a>
+    </div>
+  </header>
+
+  <main class="download-page management-page">
+    <section class="library-heading">
+      <div>
+        <p class="eyebrow">PLAYER COMPATIBILITY LAB</p>
+        <h1>{{ video.title }}</h1>
+        <p class="stats">
+          #{{ video.id }} ·
+          {{ video.extension }} ·
+          {{ video.video_codec or "unknown" }} /
+          {{ video.audio_codec or "无音频" }} ·
+          {{ video.width|resolution(video.height) }}
+        </p>
+      </div>
+    </section>
+
+    <section class="player-compare-grid">
+      <article class="player-compare-card">
+        <h2>浏览器原生播放</h2>
+        <p class="stats">用于确认浏览器自身是否支持视频和音频编码。</p>
+        <video
+          id="native-player"
+          controls
+          preload="metadata"
+          playsinline
+          poster="/thumb/{{ video.id }}"
+          src="/media/{{ video.id }}"
+        ></video>
+      </article>
+      <article class="player-compare-card">
+        <h2>movi-player</h2>
+        <p class="stats">FFmpeg WASM 解封装与软件音频解码，视频优先 WebCodecs。</p>
+        <movi-player
+          id="movi-test-player"
+          src="/media/{{ video.id }}"
+          poster="/thumb/{{ video.id }}"
+          wasmurl="{{ movi_asset_base }}/movi.wasm"
+          buffersize="{{ movi_buffer_mb }}"
+          controls
+          playsinline
+          nohotkeys
+          nolinkwarning
+        ></movi-player>
+      </article>
+    </section>
+
+    <section class="player-compare-card" style="margin-top: 1rem;">
+      <h2>回退信息</h2>
+      <p class="stats">
+        服务端推荐：{{ playback.engine or "native" }} ·
+        原因：{{ playback.engine_reason or "原生路径" }} ·
+        模式：{{ movi_mode }}
+      </p>
+      <p>
+        请分别检查首次加载、AC3 声音、暂停、拖动、倍速和内存占用。
+        电视或旧浏览器若 Movi 失败，应保留服务端兼容文件回退。
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="{{ movi_asset_base }}/element.slim.js"></script>
+</body>
+</html>

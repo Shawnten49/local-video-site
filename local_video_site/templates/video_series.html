@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>视频集管理 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-series-edit">
+</head>
+<body>
+  {% include "_admin_topbar.html" %}
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">VIDEO SERIES</p>
+        <h1>视频集管理</h1>
+        <p class="stats">
+          视频集 {{ data.total }} 个 · 第 {{ data.page }}/{{ data.pages }} 页
+        </p>
+      </div>
+      <div class="download-heading-actions">
+        <a class="download-policy-button" href="/manage/delete-tasks">
+          视频删除任务
+        </a>
+      </div>
+    </section>
+
+    <form class="filters download-filters" method="get" action="/manage/series">
+      <input
+        type="search"
+        name="q"
+        value="{{ query }}"
+        placeholder="纯数字精确查视频集 ID；其他内容搜索名称或 Provider"
+      >
+      <button type="submit">查询</button>
+      {% if query %}
+      <a class="category-button" href="/manage/series">清除</a>
+      {% endif %}
+    </form>
+
+    {% if data["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table management-series-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>名称</th>
+            <th>Provider</th>
+            <th>季</th>
+            <th>视频</th>
+            <th>总大小</th>
+            <th>更新时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in data["items"] %}
+          <tr>
+            <td class="download-id">#{{ item.id }}</td>
+            <td><strong>{{ item.display_name or item.name }}</strong></td>
+            <td>{{ item.provider or "—" }}</td>
+            <td>{{ item.season_count }}</td>
+            <td>{{ item.video_count }} / {{ item.episode_count }} 集</td>
+            <td>{{ item.video_bytes|filesize }}</td>
+            <td class="download-time">{{ item.updated_at }}</td>
+            <td class="management-actions">
+              <a
+                class="download-link-button"
+                href="/manage/series/{{ item.id }}"
+              >详情显示</a>
+              <button
+                class="download-link-button"
+                type="button"
+                data-edit-scope="series"
+                data-edit-target="{{ item.id }}"
+                data-edit-name="{{ item.name }}"
+                data-edit-display-name="{{ item.display_name or item.name }}"
+                data-edit-updated-at="{{ item.updated_at }}"
+                {% if item.active_delete_job_id %}
+                disabled
+                title="存在活动删除任务，暂不能修改"
+                {% endif %}
+              >修改数据</button>
+              <button
+                class="download-link-button download-delete-button"
+                type="button"
+                data-delete-scope="series"
+                data-delete-target="{{ item.id }}"
+                data-delete-name="{{ item.display_name or item.name }}"
+                data-delete-updated-at="{{ item.updated_at }}"
+                data-delete-summary="{{ item.season_count }} 季、{{ item.video_count }} 个视频、{{ item.video_bytes|filesize }}"
+              >删除全部</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty">
+      <h2>没有视频集</h2>
+      <p>当前没有符合查询条件的有效视频集。</p>
+    </section>
+    {% endif %}
+
+    {% with
+      pagination=data,
+      pager_action="/manage/series",
+      pager_params={"q": query},
+      pager_input_id="series-page"
+    %}
+      {% include "_pagination.html" %}
+    {% endwith %}
+  </main>
+
+  {% include "_collection_delete_dialog.html" %}
+  {% include "_series_edit_dialog.html" %}
+  <script src="/static/series-management.js?v=20261119-series-edit"></script>
+</body>
+</html>

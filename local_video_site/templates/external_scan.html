@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>扫描外盘视频 · 本地视频库</title>
+  <link rel="stylesheet" href="/static/app.css?v=20261119-season-parsing">
+</head>
+<body>
+  <header class="site-header compact topbar">
+    <div class="header-brand-group">
+      <a class="brand" href="/">
+        <span class="brand-mark">V</span>
+        <span class="brand-text">LOCAL <em>VIDEO</em></span>
+      </a>
+      <a class="back-link" href="/manage/videos">返回视频管理</a>
+    </div>
+  </header>
+
+  <main class="download-page management-page">
+    <section class="library-heading download-heading">
+      <div>
+        <p class="eyebrow">EXTERNAL VIDEO SCAN</p>
+        <h1>扫描外盘视频</h1>
+        <p class="stats">
+          原地解析外盘文件，不复制、不移动、不删除源视频。
+          缩略图和预览片段保存在本地。
+        </p>
+      </div>
+    </section>
+
+    <form id="external-scan-form" class="management-form">
+      <section class="management-form-section">
+        <label for="external-scan-source">外盘视频或目录</label>
+        <div class="management-input-row">
+          <input
+            id="external-scan-source"
+            name="source_path"
+            type="text"
+            value="{{ default_source }}"
+            placeholder="/Volumes/Media/片名"
+            required
+          >
+          <button
+            id="browse-external-scan-source"
+            class="download-policy-button"
+            type="button"
+          >选择文件或目录</button>
+        </div>
+        <p class="download-field-hint">
+          支持 MP4、MKV、WebM、MOV、TS、AVI、M4V 和 RMVB。
+        </p>
+      </section>
+
+      <section class="external-scan-grid">
+        <label>
+          <span>扫描方式</span>
+          <select id="external-scan-mode" name="scan_mode">
+            <option value="batch">文件夹 · 普通批量审核</option>
+            <option value="collection">文件夹 · 视频集</option>
+            <option value="file">单个视频</option>
+          </select>
+        </label>
+        <label>
+          <span>视频访问级别</span>
+          <select id="external-scan-access-level" name="access_level">
+            {% for level in access_levels %}
+            <option value="{{ level }}" {% if level == 0 %}selected{% endif %}>
+              {{ level }} · {{ access_level_labels[level] }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+      </section>
+
+      <section
+        id="external-scan-season-assignment"
+        class="external-scan-mode-panel external-scan-season-assignment"
+        hidden
+      >
+        <div class="external-scan-assignment">
+          <label class="external-scan-assignment-toggle">
+            <input id="external-scan-attach-season" type="checkbox">
+            <span>加入到现有视频季</span>
+          </label>
+          <div
+            id="external-scan-target-season-controls"
+            class="external-scan-target-controls"
+            hidden
+          >
+            <label for="external-scan-target-season-id">
+              目标视频季 ID
+              <input
+                id="external-scan-target-season-id"
+                type="number"
+                min="1"
+                step="1"
+                inputmode="numeric"
+                placeholder="输入现有视频季 ID"
+              >
+            </label>
+            <button
+              id="external-scan-load-target-season"
+              class="download-policy-button"
+              type="button"
+            >读取</button>
+          </div>
+          <div
+            id="external-scan-target-season-preview"
+            class="external-scan-target-preview"
+            hidden
+          ></div>
+          <p
+            id="external-scan-target-season-error"
+            class="download-form-error"
+            role="alert"
+          ></p>
+          <p class="download-field-hint">
+            关联视频季后，所有视频都需要确认集数；单视频扫描会进入人工审核。
+          </p>
+        </div>
+      </section>
+
+      <section id="external-scan-file-panel" class="external-scan-mode-panel" hidden>
+        <strong>单个视频扫描</strong>
+        <p>只解析当前视频，不需要填写视频集或季信息。</p>
+      </section>
+
+      <section id="external-scan-batch-panel" class="external-scan-mode-panel">
+        <strong>文件夹普通批量审核</strong>
+        <p>扫描完成后先进入人工审核，只有选中的视频才写入视频表。</p>
+      </section>
+
+      <section id="external-scan-collection-fields" class="external-scan-collection-editor" hidden>
+        <div class="external-scan-series-heading">
+          <label>
+            <span id="external-scan-series-label">视频集名称</span>
+            <input id="external-scan-series-name" type="text" placeholder="选择目录后自动填写">
+          </label>
+          <div class="external-scan-assignment">
+            <label class="external-scan-assignment-toggle">
+              <input id="external-scan-attach-series" type="checkbox">
+              <span>加入到现有视频集</span>
+            </label>
+            <div
+              id="external-scan-target-controls"
+              class="external-scan-target-controls"
+              hidden
+            >
+              <label for="external-scan-target-series-id">
+                目标视频集 ID
+                <input
+                  id="external-scan-target-series-id"
+                  type="number"
+                  min="1"
+                  step="1"
+                  inputmode="numeric"
+                  placeholder="输入现有视频集 ID"
+                >
+              </label>
+              <button
+                id="external-scan-load-target"
+                class="download-policy-button"
+                type="button"
+              >读取</button>
+            </div>
+            <div
+              id="external-scan-target-preview"
+              class="external-scan-target-preview"
+              hidden
+            ></div>
+            <p
+              id="external-scan-target-error"
+              class="download-form-error"
+              role="alert"
+            ></p>
+          </div>
+        </div>
+        <p id="external-scan-series-hint" class="download-field-hint">
+          修改视频集名称会同步到下方所有季。季名称、季编号和集数均可人工修正。
+        </p>
+        <div class="external-scan-group-heading">
+          <div>
+            <p class="eyebrow">SEASON GROUPS</p>
+            <h2>季分组</h2>
+          </div>
+          <div class="external-scan-group-actions">
+            <button id="reset-external-scan-groups" class="download-secondary-button" type="button">
+              恢复自动识别
+            </button>
+            <button id="add-external-scan-group" class="download-policy-button" type="button">
+              新增一季
+            </button>
+          </div>
+        </div>
+        <p id="external-scan-group-summary" class="stats"></p>
+        <div id="external-scan-groups" class="external-scan-groups"></div>
+        <p id="external-scan-group-error" class="download-form-error" role="alert"></p>
+      </section>
+
+      <section id="external-scan-source-preview" class="management-form-section external-scan-source-preview" hidden>
+        <div id="external-scan-source-summary" class="import-preview-summary"></div>
+        <div id="external-scan-source-samples" class="import-preview-samples"></div>
+      </section>
+
+      <p id="external-scan-error" class="download-form-error" role="alert"></p>
+      <footer class="management-form-footer">
+        <a class="download-secondary-button" href="/manage/videos">取消</a>
+        <button id="start-external-scan" class="download-primary-button" type="submit">
+          开始扫描
+        </button>
+      </footer>
+    </form>
+
+    <section class="library-heading external-scan-history-heading">
+      <div>
+        <p class="eyebrow">RECENT SCANS</p>
+        <h2>最近扫描</h2>
+        <p class="stats">普通批量视频需要审核后才会写入视频表。</p>
+      </div>
+    </section>
+
+    {% if recent_scans["items"] %}
+    <section class="download-table-wrap management-table-wrap">
+      <table class="download-table external-scan-history">
+        <thead>
+          <tr>
+            <th>扫描 ID</th>
+            <th>来源</th>
+            <th>模式</th>
+            <th>访问级别</th>
+            <th>状态</th>
+            <th>文件数</th>
+            <th>时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for scan in recent_scans["items"] %}
+          <tr>
+            <td><code>{{ scan.scan_id }}</code></td>
+            <td class="management-path-cell"><span title="{{ scan.source_path }}">{{ scan.source_path }}</span></td>
+            <td>
+              {% if scan.scan_mode == "collection" %}视频集
+              {% elif scan.scan_mode == "file" %}单视频
+              {% else %}普通批量{% endif %}
+              {% if scan.target_series_id %}
+              <small class="external-scan-target-link">
+                → #{{ scan.target_series_id }}
+                {{ scan.target_series_name or "已删除" }}
+              </small>
+              {% endif %}
+              {% if scan.target_season_id %}
+              <small class="external-scan-target-link">
+                → 第{{ scan.target_season_number }}季
+                {{ scan.target_season_name or "已删除" }}
+              </small>
+              {% endif %}
+            </td>
+            <td>{{ scan.access_level }} · {{ access_level_labels[scan.access_level] }}</td>
+            <td><span class="migration-status status-{{ scan.status }}">{{ scan.status_label }}</span></td>
+            <td>{{ scan.total_files }}</td>
+            <td class="download-time">{{ scan.created_at }}</td>
+            <td>
+              <a class="download-link-button" href="/manage/videos/external-scan/{{ scan.scan_id }}">查看</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% else %}
+    <section class="empty external-scan-empty">
+      <h2>暂无扫描记录</h2>
+      <p>选择一个外盘视频或目录开始扫描。</p>
+    </section>
+    {% endif %}
+  </main>
+
+  <dialog id="external-scan-browser-dialog" class="management-dialog">
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">EXTERNAL STORAGE</p>
+          <h2>选择外盘文件或目录</h2>
+        </div>
+        <button class="cover-dialog-close" type="button" data-close-external-browser aria-label="关闭">×</button>
+      </header>
+      <p id="external-scan-browser-path" class="management-picked-path"></p>
+      <div id="external-scan-browser-list" class="directory-list import-browser-list"></div>
+      <p id="external-scan-browser-error" class="download-form-error"></p>
+      <footer class="download-dialog-footer">
+        <button class="download-secondary-button" type="button" data-close-external-browser>取消</button>
+        <button id="select-external-scan-directory" class="download-primary-button" type="button">
+          选择当前目录
+        </button>
+      </footer>
+    </div>
+  </dialog>
+
+  <script src="/static/external-scan.js?v=20261120-target-season"></script>
+</body>
+</html>
