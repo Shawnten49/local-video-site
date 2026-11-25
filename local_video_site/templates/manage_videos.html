@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>视频管理 · 本地视频库</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261119-format-dialog">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-format-subtitles">
 </head>
 <body>
   {% include "_admin_topbar.html" %}
@@ -429,6 +429,30 @@
         </label>
       </fieldset>
 
+      <fieldset class="format-mp4-subtitles">
+        <legend>外挂字幕</legend>
+        <div class="format-subtitle-modes">
+          <label>
+            <input type="radio" name="format-subtitle-mode" value="auto" checked>
+            <span>自动选择</span>
+          </label>
+          <label>
+            <input type="radio" name="format-subtitle-mode" value="manual">
+            <span>手动勾选</span>
+          </label>
+          <label>
+            <input type="radio" name="format-subtitle-mode" value="none">
+            <span>不提取字幕</span>
+          </label>
+        </div>
+        <p class="format-subtitle-priority">
+          默认顺序：中英双语 → 中文 → 第一条可转换文本字幕。
+        </p>
+        <div id="format-mp4-subtitle-list" class="format-subtitle-list">
+          正在读取字幕流…
+        </div>
+      </fieldset>
+
       <p id="format-mp4-warning" class="format-mp4-warning" hidden>
         编码转译会重新编码视频和音频，画质和音质可能发生变化，处理时间较长。
       </p>
@@ -470,6 +494,6 @@
     </div>
   </dialog>
 
-  <script src="/static/manage-videos.js?v=20261119-format-rmvb"></script>
+  <script src="/static/manage-videos.js?v=20261125-format-subtitles"></script>
 </body>
 </html>

@@ -128,7 +128,6 @@ else
 fi
 HEALTH_URL="http://127.0.0.1:${PORT}/api/health"
 READY_URL="http://127.0.0.1:${PORT}/api/ready"
-SCAN_URL="${BASE_URL}/api/scan"
 
 active_admin_count() {
   .venv/bin/python -c '
@@ -153,6 +152,40 @@ print(1 if default_admin_pending_change() else 0)
 
 listening_pids() {
   lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true
+}
+
+project_server_pids() {
+  ps -axo pid=,command= 2>/dev/null \
+    | while IFS= read -r process_line; do
+        set -- $process_line
+        pid="${1:-}"
+        shift
+        command="$*"
+        [ -n "$pid" ] || continue
+        case "$command" in
+          *"-m local_video_site serve"*) ;;
+          *) continue ;;
+        esac
+        case "$command" in
+          *"--port ${PORT}"*) ;;
+          *) continue ;;
+        esac
+        cwd="$(
+          lsof -a -p "$pid" -d cwd -Fn 2>/dev/null \
+            | sed -n 's/^n//p' \
+            | head -n 1
+        )"
+        if [ "$cwd" = "$PROJECT_DIR" ]; then
+          printf '%s\n' "$pid"
+        fi
+      done
+}
+
+service_pids() {
+  {
+    listening_pids
+    project_server_pids
+  } | awk 'NF && !seen[$1]++'
 }
 
 first_listening_pid() {
@@ -186,6 +219,15 @@ clear_stale_keep_awake_pid() {
   pid="$(cat "$KEEP_AWAKE_PID_FILE" 2>/dev/null || true)"
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && is_keep_awake_pid "$pid"; then
     return 0
+  fi
+  rm -f "$KEEP_AWAKE_PID_FILE"
+}
+
+stop_keep_awake() {
+  [ -e "$KEEP_AWAKE_PID_FILE" ] || return 0
+  pid="$(cat "$KEEP_AWAKE_PID_FILE" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && is_keep_awake_pid "$pid"; then
+    kill "$pid" 2>/dev/null || true
   fi
   rm -f "$KEEP_AWAKE_PID_FILE"
 }
@@ -256,8 +298,13 @@ except Exception:
 }
 
 scan_existing_service() {
-  curl --silent --show-error --fail --max-time 30 \
-    -X POST "$SCAN_URL" 2>/dev/null || true
+  .venv/bin/python -m local_video_site scan 2>&1 \
+    | awk '
+        /^discovered=/ { result = $0 }
+        /^scan already running$/ { result = $0 }
+        END { if (result != "") print result }
+      ' \
+    || true
 }
 
 print_lan_access() {
@@ -313,7 +360,7 @@ launch_background() {
   log_info "后台进程 PID: $background_pid"
 
   attempts=0
-  while [ "$attempts" -lt 120 ]; do
+  while [ "$attempts" -lt 240 ]; do
     if is_service_ready; then
       log_info "本地视频站已在后台运行: $BASE_URL"
       log_info "PID 文件: $PID_FILE"
@@ -333,9 +380,13 @@ launch_background() {
     sleep 0.25
   done
 
-  log_warn "后台进程仍在运行，但健康检查尚未通过。"
-  log_warn "请稍后查看日志: $BACKGROUND_LOG"
-  exit 0
+  log_warn "后台进程健康检查未通过，正在停止未就绪的实例。"
+  kill "$background_pid" 2>/dev/null || true
+  stop_keep_awake
+  rm -f "$PID_FILE"
+  log_warn "最近日志:"
+  tail -n 40 "$BACKGROUND_LOG" >&2 2>/dev/null || true
+  exit 1
 }
 
 if [ "$LAN_MODE" -eq 1 ]; then
@@ -371,6 +422,10 @@ if is_local_video_site; then
     log_info "检测到当前运行模式为 ${existing_mode}，正在切换为 ${REQUESTED_MODE}..."
     RESTART=1
   fi
+  if [ "$RESTART" -eq 0 ] && ! is_service_ready; then
+    log_warn "现有视频站健康检查未通过，正在自动重启..."
+    RESTART=1
+  fi
   if [ "$RESTART" -eq 0 ]; then
     log_info "本地视频站已运行: $BASE_URL"
     print_lan_access
@@ -379,46 +434,61 @@ if is_local_video_site; then
     fi
     log_info "正在执行增量扫描..."
     scan_response="$(scan_existing_service)"
-    if [ -n "$scan_response" ]; then
-      scan_summary="$(printf '%s' "$scan_response" \
-        | .venv/bin/python -c '
-import json
-import sys
-
-data = json.load(sys.stdin)
-stats = data.get("stats", {})
-print(
-    "扫描状态={} discovered={} added={} changed={} missing={}".format(
-        data.get("state", "unknown"),
-        stats.get("discovered", 0),
-        stats.get("added", 0),
-        stats.get("changed", 0),
-        stats.get("missing", 0),
-    )
-)
-'
-      )"
-      log_info "$scan_summary"
-    else
-      log_warn "增量扫描未触发，请查看日志或使用 --restart 重新启动。"
-    fi
+    case "$scan_response" in
+      discovered=*)
+        log_info "增量扫描完成: $scan_response"
+        ;;
+      *"scan already running"*)
+        log_info "增量扫描已在运行，无需重复启动。"
+        ;;
+      "")
+        log_warn "增量扫描没有返回结果，请查看日志。"
+        ;;
+      *)
+        log_info "增量扫描结果: $scan_response"
+        ;;
+    esac
     log_info "日志目录: $LOG_DIR"
     open_site
     exit 0
   fi
 
-  pids="$(listening_pids)"
+  pids="$(service_pids)"
   for pid in $pids; do
-    kill "$pid"
+    kill "$pid" 2>/dev/null || true
   done
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    [ -z "$(listening_pids)" ] && break
-    sleep 0.1
+  attempts=0
+  while [ "$attempts" -lt 50 ]; do
+    remaining=""
+    for pid in $pids; do
+      if kill -0 "$pid" 2>/dev/null; then
+        remaining="$pid"
+        break
+      fi
+    done
+    [ -z "$remaining" ] && break
+    sleep 0.2
+    attempts=$((attempts + 1))
   done
-  if [ -n "$(listening_pids)" ]; then
-    log_warn "重启失败: 端口 $PORT 仍被占用"
+  for pid in $pids; do
+    if kill -0 "$pid" 2>/dev/null; then
+      log_warn "旧实例未在超时内退出，强制结束项目进程: $pid"
+      kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
+  attempts=0
+  while [ "$attempts" -lt 25 ]; do
+    remaining="$(service_pids)"
+    [ -z "$remaining" ] && break
+    sleep 0.2
+    attempts=$((attempts + 1))
+  done
+  if [ -n "$(service_pids)" ]; then
+    log_warn "重启失败: 本项目的旧服务进程仍未退出"
     exit 1
   fi
+  stop_keep_awake
+  rm -f "$PID_FILE"
   log_info "已停止旧视频站，正在启动最新版本..."
 elif [ -n "$(listening_pids)" ]; then
   log_warn "启动失败: 端口 $PORT 已被其他程序占用。"

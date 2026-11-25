@@ -641,6 +641,48 @@ def ensure_media_policy_schema() -> None:
         _ensure_media_policy_columns(connection)
 
 
+def ensure_subtitle_schema() -> None:
+    with connect() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS video_subtitle_assets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id INTEGER NOT NULL,
+                source_stream_index INTEGER NOT NULL,
+                language TEXT,
+                title TEXT,
+                extension TEXT NOT NULL,
+                storage_path TEXT NOT NULL UNIQUE,
+                default_track INTEGER NOT NULL DEFAULT 0,
+                source_size INTEGER NOT NULL,
+                source_mtime_ns INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(video_id, source_stream_index, extension),
+                FOREIGN KEY (video_id)
+                    REFERENCES videos(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_video_subtitle_video
+            ON video_subtitle_assets(video_id, source_stream_index)
+            """
+        )
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info('video_subtitle_assets')"
+            )
+        }
+        if "is_default" in columns and "default_track" not in columns:
+            connection.execute(
+                "ALTER TABLE video_subtitle_assets "
+                "RENAME COLUMN is_default TO default_track"
+            )
+
+
 def _apply_legacy_schema() -> None:
     with connect() as connection:
         connection.executescript(
@@ -2069,6 +2111,7 @@ def init_db() -> None:
         _apply_legacy_schema,
         baseline_functions=baseline_schema_functions(),
     )
+    ensure_subtitle_schema()
     with connect() as connection:
         _repair_storage_paths_relative_to_mount(connection)
         _repair_orphan_video_dependencies(connection)

@@ -6749,10 +6749,11 @@ class CanvasRenderer {
       }
     }
   }
-  setSubtitleCues(A2) {
+  setSubtitleCues(A2, I2 = false) {
     if (g.debug(TA, `Setting subtitle cues: ${A2.length} cue(s)`), A2.forEach((A3, I2) => {
       A3.image ? g.debug(TA, `  Cue ${I2}: [IMAGE] ${A3.image.width}x${A3.image.height} at (${A3.position?.x ?? "?"}, ${A3.position?.y ?? "?"}) (${A3.start.toFixed(2)}s - ${A3.end.toFixed(2)}s)`) : g.debug(TA, `  Cue ${I2}: "${A3.text?.substring(0, 50)}..." (${A3.start.toFixed(2)}s - ${A3.end.toFixed(2)}s)`);
-    }), A2.length > 1) this.subtitleCues = [...A2];
+    }), I2) return this._externalCueForced = A2.length > 0, this.subtitleCues = A2.length ? [...A2] : [], this.activeSubtitleCue = A2[0] || null, void this.renderSubtitles();
+    if (A2.length > 1) this.subtitleCues = [...A2];
     else if (1 === A2.length) {
       const I2 = A2[0], g2 = this.getCurrentPlaybackTime() - this.subtitleDelay;
       this.subtitleCues = this.subtitleCues.filter((A3) => g2 <= A3.end + 0.5);
@@ -6864,6 +6865,7 @@ class CanvasRenderer {
     this.subtitleHeld !== A2 && (this.subtitleHeld = A2, A2 || (this.updateActiveSubtitle(), this.renderSubtitles()));
   }
   updateActiveSubtitle() {
+    if (this._externalCueForced) return;
     if (this.subtitleHeld) return;
     const A2 = this.getCurrentPlaybackTime(), I2 = A2 - this.subtitleDelay, C2 = this.activeSubtitleCue;
     this.activeSubtitleCue = null;
@@ -67615,8 +67617,8 @@ class MoviPlayer extends Y {
     let A2 = -1;
     this._externalSubTimer = window.setInterval(() => {
       if (!this.videoRenderer) return;
-      const I2 = this.clock.getTime(), g2 = this._externalSubCues.findIndex((A3) => I2 >= A3.start && I2 <= A3.end);
-      g2 !== A2 && (A2 = g2, g2 >= 0 ? this.videoRenderer.setSubtitleCues([this._externalSubCues[g2]]) : this.videoRenderer.setSubtitleCues([]));
+      const I2 = this.getCurrentTime(), g2 = this._externalSubCues.findIndex((A3) => I2 >= A3.start && I2 <= A3.end);
+      g2 !== A2 && (A2 = g2, g2 >= 0 ? this.videoRenderer.setSubtitleCues([this._externalSubCues[g2]], true) : this.videoRenderer.setSubtitleCues([], true));
     }, 100);
   }
   stopExternalSubtitles() {

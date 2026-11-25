@@ -57,10 +57,12 @@ import kotlinx.coroutines.delay
 @Composable
 fun DetailScreen(
     detail: VideoDetail?,
+    selectedVideoId: Int,
     loading: Boolean,
     error: String?,
     posterUrl: String?,
     onPlay: (Int) -> Unit,
+    onOpenExternal: (Int) -> Unit,
     onRetry: () -> Unit,
     onSettings: () -> Unit,
     onBack: () -> Unit,
@@ -109,19 +111,25 @@ fun DetailScreen(
         when {
             environment.isTelevision -> TvDetailContent(
                 detail = detail,
+                selectedVideoId = selectedVideoId,
                 posterUrl = posterUrl,
                 onPlay = onPlay,
+                onOpenExternal = onOpenExternal,
             )
             environment.isPhonePortrait -> PhonePortraitDetail(
                 detail = detail,
+                selectedVideoId = selectedVideoId,
                 posterUrl = posterUrl,
                 onPlay = onPlay,
+                onOpenExternal = onOpenExternal,
                 onBack = onBack,
             )
             else -> PhoneLandscapeDetail(
                 detail = detail,
+                selectedVideoId = selectedVideoId,
                 posterUrl = posterUrl,
                 onPlay = onPlay,
+                onOpenExternal = onOpenExternal,
                 onBack = onBack,
             )
         }
@@ -131,8 +139,10 @@ fun DetailScreen(
 @Composable
 private fun PhonePortraitDetail(
     detail: VideoDetail,
+    selectedVideoId: Int,
     posterUrl: String?,
     onPlay: (Int) -> Unit,
+    onOpenExternal: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
     val episodes = detail.series?.episodes.orEmpty()
@@ -152,15 +162,29 @@ private fun PhonePortraitDetail(
             episodeCount = episodes.size,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
         )
+        SelectedEpisodeStatus(
+            episodes = episodes,
+            selectedVideoId = selectedVideoId,
+            modifier = Modifier.padding(horizontal = 20.dp),
+        )
         if (episodes.isEmpty()) {
-            SinglePlayButton(
-                onClick = { onPlay(detail.id) },
+            DetailActionButtons(
+                detail = detail,
+                onPlay = onPlay,
+                onOpenExternal = onOpenExternal,
                 modifier = Modifier.padding(horizontal = 20.dp),
             )
         } else {
+            ExternalPlayButton(
+                detail = detail,
+                videoId = selectedVideoId,
+                onOpenExternal = onOpenExternal,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
             EpisodeGrid(
                 detail = detail,
                 episodes = episodes,
+                selectedVideoId = selectedVideoId,
                 onPlay = onPlay,
                 columns = 2,
                 contentPadding = PaddingValues(
@@ -181,8 +205,10 @@ private fun PhonePortraitDetail(
 @Composable
 private fun PhoneLandscapeDetail(
     detail: VideoDetail,
+    selectedVideoId: Int,
     posterUrl: String?,
     onPlay: (Int) -> Unit,
+    onOpenExternal: (Int) -> Unit,
     onBack: () -> Unit,
 ) {
     val episodes = detail.series?.episodes.orEmpty()
@@ -211,12 +237,28 @@ private fun PhoneLandscapeDetail(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             DetailName(detail = detail, episodeCount = episodes.size)
+            SelectedEpisodeStatus(
+                episodes = episodes,
+                selectedVideoId = selectedVideoId,
+            )
+            if (episodes.isNotEmpty()) {
+                ExternalPlayButton(
+                    detail = detail,
+                    videoId = selectedVideoId,
+                    onOpenExternal = onOpenExternal,
+                )
+            }
             if (episodes.isEmpty()) {
-                SinglePlayButton(onClick = { onPlay(detail.id) })
+                DetailActionButtons(
+                    detail = detail,
+                    onPlay = onPlay,
+                    onOpenExternal = onOpenExternal,
+                )
             } else {
                 EpisodeGrid(
                     detail = detail,
                     episodes = episodes,
+                    selectedVideoId = selectedVideoId,
                     onPlay = onPlay,
                     columns = 3,
                     contentPadding = PaddingValues(bottom = 20.dp),
@@ -230,12 +272,14 @@ private fun PhoneLandscapeDetail(
 @Composable
 private fun TvDetailContent(
     detail: VideoDetail,
+    selectedVideoId: Int,
     posterUrl: String?,
     onPlay: (Int) -> Unit,
+    onOpenExternal: (Int) -> Unit,
 ) {
     val episodes = detail.series?.episodes.orEmpty()
     val firstPlayableFocus = remember { FocusRequester() }
-    LaunchedEffect(detail.id, episodes.size) {
+    LaunchedEffect(detail.id, episodes.size, selectedVideoId) {
         withFrameNanos { }
         runCatching { firstPlayableFocus.requestFocus() }
         delay(120L)
@@ -262,15 +306,29 @@ private fun TvDetailContent(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             DetailName(detail = detail, episodeCount = episodes.size)
+            SelectedEpisodeStatus(
+                episodes = episodes,
+                selectedVideoId = selectedVideoId,
+            )
+            if (episodes.isNotEmpty()) {
+                ExternalPlayButton(
+                    detail = detail,
+                    videoId = selectedVideoId,
+                    onOpenExternal = onOpenExternal,
+                )
+            }
             if (episodes.isEmpty()) {
-                SinglePlayButton(
-                    onClick = { onPlay(detail.id) },
+                DetailActionButtons(
+                    detail = detail,
+                    onPlay = onPlay,
+                    onOpenExternal = onOpenExternal,
                     focusRequester = firstPlayableFocus,
                 )
             } else {
                 EpisodeGrid(
                     detail = detail,
                     episodes = episodes,
+                    selectedVideoId = selectedVideoId,
                     onPlay = onPlay,
                     columns = 3,
                     contentPadding = PaddingValues(bottom = 24.dp),
@@ -334,6 +392,7 @@ private fun DetailPoster(
 private fun EpisodeGrid(
     detail: VideoDetail,
     episodes: List<EpisodeInfo>,
+    selectedVideoId: Int,
     onPlay: (Int) -> Unit,
     columns: Int,
     contentPadding: PaddingValues,
@@ -341,7 +400,7 @@ private fun EpisodeGrid(
     firstFocusRequester: FocusRequester? = null,
 ) {
     val targetVideoId = episodes
-        .firstOrNull { it.videoId == detail.id && it.playable }
+        .firstOrNull { it.videoId == selectedVideoId && it.playable }
         ?.videoId
         ?: episodes.firstOrNull { it.playable }?.videoId
     LazyVerticalGrid(
@@ -354,7 +413,7 @@ private fun EpisodeGrid(
         items(episodes, key = { it.episodeNumber }) { episode ->
             EpisodeCard(
                 episode = episode,
-                selected = episode.videoId == detail.id,
+                selected = episode.videoId == selectedVideoId,
                 onClick = {
                     episode.videoId?.takeIf { episode.playable }?.let(onPlay)
                 },
@@ -369,6 +428,30 @@ private fun EpisodeGrid(
             )
         }
     }
+}
+
+@Composable
+private fun SelectedEpisodeStatus(
+    episodes: List<EpisodeInfo>,
+    selectedVideoId: Int,
+    modifier: Modifier = Modifier,
+) {
+    val selected = episodes.firstOrNull {
+        it.videoId == selectedVideoId
+    } ?: return
+    val isTelevision = LocalTvUi.current
+    Text(
+        text = "当前选择：第 %02d 集 · %s".format(
+            selected.episodeNumber,
+            selected.title,
+        ),
+        color = Accent,
+        fontSize = if (isTelevision) 14.sp else 12.sp,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -413,6 +496,62 @@ private fun EpisodeCard(
             )
         }
     }
+}
+
+private fun supportsExternalPlayer(detail: VideoDetail): Boolean {
+    val extension = detail.extension?.lowercase()
+    val videoCodec = detail.videoCodec.lowercase()
+    val audioCodec = detail.audioCodec.lowercase()
+    return extension == ".mkv" ||
+        videoCodec in setOf("hevc", "h265") ||
+        audioCodec in setOf("truehd", "eac3", "ac3")
+}
+
+@Composable
+private fun DetailActionButtons(
+    detail: VideoDetail,
+    onPlay: (Int) -> Unit,
+    onOpenExternal: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SinglePlayButton(
+            onClick = { onPlay(detail.id) },
+            focusRequester = focusRequester,
+        )
+        if (supportsExternalPlayer(detail)) {
+            ExternalPlayButton(
+                detail = detail,
+                videoId = detail.id,
+                onOpenExternal = onOpenExternal,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExternalPlayButton(
+    detail: VideoDetail,
+    videoId: Int,
+    onOpenExternal: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!supportsExternalPlayer(detail)) return
+    val isTelevision = LocalTvUi.current
+    FocusableButton(
+        text = "用 VLC 播放原片",
+        onClick = { onOpenExternal(videoId) },
+        compact = !isTelevision,
+        modifier = modifier
+            .width(if (isTelevision) 210.dp else 176.dp)
+            .height(if (isTelevision) 56.dp else 44.dp)
+            .semantics { contentDescription = "用 VLC 播放原始视频" },
+    )
 }
 
 @Composable

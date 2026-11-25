@@ -11,7 +11,7 @@ from local_video_site import database
 from local_video_site.identity.permissions.content import ACCESS_LEVELS, ACCESS_LEVEL_LABELS, access_level_label, validate_access_level
 from local_video_site.storage.deletion import delete_password_configured, verify_delete_password
 from local_video_site.storage.migration_tasks import MIGRATION_STAGE_LABELS, MIGRATION_STATUS_LABELS, create_batch as create_migration_batch, list_candidates as list_migration_candidates, list_migrations, migration_counts, request_cancel as cancel_migration, retry_migration
-from local_video_site.media.editing.format import STAGE_LABELS as FORMAT_STAGE_LABELS, STATUS_LABELS as FORMAT_STATUS_LABELS, VideoFormatError, create_jobs as create_format_jobs, delete_backup as delete_format_backup, get_jobs_by_ids as get_format_jobs_by_ids, job_counts as format_job_counts, list_jobs as list_format_jobs, request_cancel as cancel_format_job, restore_backup as restore_format_backup, retry_job as retry_format_job
+from local_video_site.media.editing.format import STAGE_LABELS as FORMAT_STAGE_LABELS, STATUS_LABELS as FORMAT_STATUS_LABELS, VideoFormatError, create_jobs as create_format_jobs, delete_backup as delete_format_backup, format_options, get_jobs_by_ids as get_format_jobs_by_ids, job_counts as format_job_counts, list_jobs as list_format_jobs, request_cancel as cancel_format_job, restore_backup as restore_format_backup, retry_job as retry_format_job
 from local_video_site.ingestion.library_scan import ScanAlreadyRunning
 from local_video_site.ingestion.import_tasks import IMPORT_STATUS_LABELS, import_job_counts, list_import_jobs
 from local_video_site.storage.volumes import StorageError, active_migration_video_ids, decorate_video_cached, list_directories as list_storage_directories, refresh_storage_volumes
@@ -234,6 +234,11 @@ def api_create_format_jobs(
             operation=selection.operation,
             confirmed=selection.confirmed,
             confirm_lossy=selection.confirm_lossy,
+            subtitle_mode=selection.subtitle_mode,
+            subtitle_stream_indexes=selection.subtitle_stream_indexes,
+            default_subtitle_stream_index=(
+                selection.default_subtitle_stream_index
+            ),
             created_by_user_id=request.state.identity.user_id,
             created_by_username=request.state.identity.username,
         )
@@ -251,6 +256,20 @@ def api_create_format_jobs(
         details=result,
     )
     return result
+
+
+@router.get("/api/manage/videos/{video_id}/format-options")
+def api_format_options(request: Request, video_id: int):
+    video = database.get_video_admin(video_id)
+    if video is None or video.get("is_deleted"):
+        raise HTTPException(status_code=404, detail="视频不存在")
+    try:
+        return format_options(video)
+    except VideoFormatError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
 
 
 @router.post("/api/manage/format-jobs/{job_id}/retry")

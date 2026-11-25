@@ -54,6 +54,7 @@ work/
 *.rej
 .delete-password
 .lan-token
+.playback-token-secret
 
 # Browser automation and profiles
 .chrome-cdp-profile/

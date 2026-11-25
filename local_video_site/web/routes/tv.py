@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 from urllib.parse import quote
 
@@ -11,6 +12,7 @@ from local_video_site import database
 from local_video_site.identity.permissions.account import GUEST_IDENTITY
 from local_video_site.identity.permissions.content import can_view
 from local_video_site.media.ffmpeg import FFmpegBusyError
+from local_video_site.media.mime import media_type_for_path
 from local_video_site.media.playback.engine import prepare_playback_cache, requires_playback_cache
 from local_video_site.media.playback.state import get_playback_state
 from local_video_site.storage.volumes import resolve_video_storage
@@ -72,8 +74,43 @@ def _visible_video_or_404(video_id: int) -> Dict:
     return video
 
 
+def _subtitle_tracks(video_id: int) -> List[Dict]:
+    tracks = []
+    for asset in database.list_video_subtitle_assets(
+        int(video_id),
+        playback_only=True,
+    ):
+        if str(asset.get("extension") or "").lower() != "vtt":
+            continue
+        version = str(asset.get("updated_at") or "")
+        tracks.append({
+            "id": int(asset["id"]),
+            "url": "/subtitle/{}?v={}".format(
+                int(asset["id"]),
+                quote(version, safe=""),
+            ),
+            "language": str(asset.get("language") or "und"),
+            "label": str(
+                asset.get("title")
+                or asset.get("language")
+                or "字幕"
+            ),
+            "mime_type": "text/vtt",
+            "default": bool(asset.get("default_track")),
+        })
+    return tracks
+
+
 def _safe_playback(video_id: int) -> Dict:
+    video = database.get_video(int(video_id))
     state = get_playback_state(int(video_id))
+    external_only = bool(
+        video
+        and str(
+            video.get("extension")
+            or Path(str(video.get("path") or "")).suffix
+        ).lower() == ".mkv"
+    )
     return {
         "video_id": int(video_id),
         "state": state.get("state") or "playback_failed",
@@ -85,8 +122,17 @@ def _safe_playback(video_id: int) -> Dict:
             if state.get("playable")
             else None
         ),
-        "mime_type": "video/mp4",
+        "mime_type": (
+            media_type_for_path(str(video.get("path") or ""))
+            if video
+            else "video/mp4"
+        ),
         "supports_range": True,
+        "subtitles": _subtitle_tracks(video_id),
+        "playback_mode": (
+            "external_vlc" if external_only else "native"
+        ),
+        "external_player": "vlc" if external_only else "",
     }
 
 
@@ -208,6 +254,8 @@ def video_detail(video_id: int) -> JSONResponse:
         "height": video.get("height"),
         "video_codec": video.get("video_codec") or "",
         "audio_codec": video.get("audio_codec") or "",
+        "extension": video.get("extension") or "",
+        "container_format": video.get("container_format") or "",
         "poster_url": _thumbnail_url(video),
         "series": _season_episodes(video_id),
         "playback": _safe_playback(video_id),
@@ -227,9 +275,60 @@ def playback_state(video_id: int) -> JSONResponse:
     )
 
 
+@router.get("/videos/{video_id}/original-playback")
+def original_playback(video_id: int) -> JSONResponse:
+    video = _visible_video_or_404(video_id)
+    resolution = resolve_video_storage(video)
+    state = resolution["state"]
+    if state == "external_offline":
+        playback_info = get_playback_state(video_id)
+        raise HTTPException(
+            status_code=409,
+            detail=playback_info["message"],
+        )
+    path = resolution["path"]
+    if not path.is_file():
+        database.mark_video_missing(video_id)
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    extension = path.suffix.lower()
+    mime_type = media_type_for_path(path)
+    if mime_type is None:
+        raise HTTPException(
+            status_code=415,
+            detail="当前文件类型不支持外部播放",
+        )
+    return JSONResponse(
+        {
+            "video_id": int(video_id),
+            "available": True,
+            "title": str(video.get("title") or "未命名视频"),
+            "stream_url": "/media/{}".format(video_id),
+            "mime_type": mime_type,
+            "container_format": video.get("container_format") or "",
+            "extension": extension,
+            "video_codec": video.get("video_codec") or "",
+            "audio_codec": video.get("audio_codec") or "",
+            "width": video.get("width"),
+            "height": video.get("height"),
+            "duration_seconds": video.get("duration"),
+            "supports_range": True,
+            "external_player": "vlc",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.post("/videos/{video_id}/prepare")
 def prepare_video(video_id: int) -> JSONResponse:
     video = _visible_video_or_404(video_id)
+    if Path(str(video.get("path") or "")).suffix.lower() == ".mkv":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "mkv_external_only",
+                "message": "MKV 视频仅支持使用 VLC 外部播放",
+            },
+        )
     state = get_playback_state(video_id)
     if state["state"] == "external_offline":
         raise HTTPException(status_code=409, detail=state["message"])

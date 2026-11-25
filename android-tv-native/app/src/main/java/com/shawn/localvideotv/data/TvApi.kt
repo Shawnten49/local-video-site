@@ -22,6 +22,11 @@ interface TvApi {
     @GET("api/tv/v1/videos/{videoId}/playback")
     suspend fun playback(@Path("videoId") videoId: Int): PlaybackInfo
 
+    @GET("api/tv/v1/videos/{videoId}/original-playback")
+    suspend fun originalPlayback(
+        @Path("videoId") videoId: Int,
+    ): OriginalPlaybackInfo
+
     @POST("api/tv/v1/videos/{videoId}/prepare")
     suspend fun prepare(@Path("videoId") videoId: Int): PlaybackInfo
 }

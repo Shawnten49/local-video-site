@@ -266,7 +266,7 @@ class ExternalVideoScanTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn("加入到现有视频集", page.text)
         self.assertIn("目标视频集 ID", page.text)
-        self.assertIn("v=20261120-target-season", page.text)
+        self.assertIn("v=20261125-submit-state", page.text)
         self.assertIn("加入到现有视频季", page.text)
         self.assertIn("目标视频季 ID", page.text)
         self.assertEqual(
@@ -307,6 +307,53 @@ class ExternalVideoScanTests(unittest.TestCase):
             )
         self.assertEqual(raised.exception.code, "duplicate_episode_number")
         self.assertEqual(list_scans()["total"], 0)
+
+    def test_collection_ignores_identical_collision_copy(self):
+        original = self._video("老友记 第一季 001.mp4")
+        duplicate = self.source / "老友记 第一季 001 (1).mp4"
+        duplicate.write_bytes(original.read_bytes())
+
+        preview = preview_scan_source(
+            str(self.source),
+            scan_mode="collection",
+        )
+
+        self.assertEqual(preview["file_count"], 1)
+        self.assertEqual(preview["physical_file_count"], 2)
+        self.assertEqual(preview["duplicate_file_count"], 1)
+        self.assertEqual(len(preview["groups"][0]["items"]), 1)
+        scan = create_scan(
+            str(self.source),
+            scan_mode="collection",
+            series_name=preview["suggested_series_name"],
+            groups=preview["groups"],
+        )
+        self.assertEqual(scan["total_files"], 1)
+        self.assertEqual(scan["duplicate_file_count"], 1)
+
+    def test_collection_single_special_video_defaults_to_episode_one(self):
+        root = self.mount_root / "Specials"
+        special = root / "Behind the Scenes"
+        special.mkdir(parents=True)
+        (special / "making-of.mkv").write_bytes(b"video")
+
+        preview = preview_scan_source(
+            str(root),
+            scan_mode="collection",
+        )
+
+        self.assertEqual(preview["file_count"], 1)
+        self.assertEqual(
+            preview["groups"][0]["items"][0]["episode_number"],
+            1,
+        )
+        scan = create_scan(
+            str(root),
+            scan_mode="collection",
+            series_name="Specials",
+            groups=preview["groups"],
+        )
+        self.assertEqual(scan["total_files"], 1)
 
     def test_single_season_discovery_uses_editable_name_and_fixed_number(self):
         self._video("01.mp4")

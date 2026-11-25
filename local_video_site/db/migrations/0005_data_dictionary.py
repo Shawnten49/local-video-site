@@ -337,4 +337,8 @@ data_dictionary_migration = Migration(
     BASELINE_VERSION + 4,
     "add searchable schema vocabulary and strict value guards",
     data_dictionary_statements(),
+    compatible_checksums=(
+        "652335afb87351fe1ae955b7229d1de371e01da1435998f079e19704ff6fa0b4",
+        "cef09f273822f4458baf03290280a54a50044a991294ee4a16190bf38dfd455a",
+    ),
 )

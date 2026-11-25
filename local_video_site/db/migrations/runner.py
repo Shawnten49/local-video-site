@@ -21,6 +21,7 @@ class Migration:
     version: int
     name: str
     statements: tuple
+    compatible_checksums: tuple = ()
 
     @property
     def checksum(self) -> str:
@@ -76,6 +77,15 @@ _long_title_display_module = importlib.import_module(
 _settings_module = importlib.import_module(
     "{}.0007_settings".format(__package__)
 )
+_subtitle_assets_module = importlib.import_module(
+    "{}.0008_subtitle_assets".format(__package__)
+)
+_subtitle_default_priority_module = importlib.import_module(
+    "{}.0009_subtitle_default_priority".format(__package__)
+)
+_format_subtitle_selection_module = importlib.import_module(
+    "{}.0010_format_subtitle_selection".format(__package__)
+)
 
 MIGRATIONS = (
     _integrity_module.runtime_integrity_migration,
@@ -84,6 +94,9 @@ MIGRATIONS = (
     _data_dictionary_module.data_dictionary_migration,
     _long_title_display_module.long_title_display_migration,
     _settings_module.settings_migration,
+    _subtitle_assets_module.subtitle_assets_migration,
+    _subtitle_default_priority_module.subtitle_default_priority_migration,
+    _format_subtitle_selection_module.format_subtitle_selection_migration,
 )
 
 
@@ -202,10 +215,14 @@ def run_migrations(
                 continue
             if applied_checksum == migration.checksum:
                 continue
-            if applied_checksum != legacy_identifier_checksum(
-                migration.version,
-                migration.name,
-            ):
+            compatible = {
+                legacy_identifier_checksum(
+                    migration.version,
+                    migration.name,
+                ),
+                *migration.compatible_checksums,
+            }
+            if applied_checksum not in compatible:
                 raise RuntimeError(
                     "Migration {} checksum mismatch".format(
                         migration.version

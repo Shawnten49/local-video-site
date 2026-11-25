@@ -8,7 +8,7 @@ status=0
 
 forbidden_files="$(
   git ls-files \
-    | grep -E '(^|/)(local\.properties|\.env|\.delete-password|\.lan-token)$|\.(db|sqlite|sqlite3|mp4|mkv|avi|rmvb|mov|webm|m3u8|jpg|jpeg|png|webp|log|jks|keystore|pem|key)$' \
+    | grep -E '(^|/)(local\.properties|\.env|\.delete-password|\.lan-token|\.playback-token-secret)$|\.(db|sqlite|sqlite3|mp4|mkv|avi|rmvb|mov|webm|m3u8|jpg|jpeg|png|webp|log|jks|keystore|pem|key)$' \
     || true
 )"
 if [ -n "$forbidden_files" ]; then

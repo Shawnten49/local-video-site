@@ -39,6 +39,34 @@ data class PlaybackInfo(
     @SerializedName("stream_url") val streamUrl: String?,
     @SerializedName("mime_type") val mimeType: String?,
     @SerializedName("supports_range") val supportsRange: Boolean,
+    val subtitles: List<SubtitleTrack>? = null,
+    @SerializedName("playback_mode") val playbackMode: String? = "native",
+    @SerializedName("external_player") val externalPlayer: String? = "",
+)
+
+data class SubtitleTrack(
+    val id: Int,
+    val url: String,
+    val language: String,
+    val label: String,
+    @SerializedName("mime_type") val mimeType: String,
+    @SerializedName("default") val isDefault: Boolean = false,
+)
+
+data class OriginalPlaybackInfo(
+    @SerializedName("video_id") val videoId: Int,
+    val available: Boolean,
+    val title: String,
+    @SerializedName("stream_url") val streamUrl: String,
+    @SerializedName("mime_type") val mimeType: String,
+    @SerializedName("container_format") val containerFormat: String,
+    val extension: String,
+    @SerializedName("video_codec") val videoCodec: String,
+    @SerializedName("audio_codec") val audioCodec: String,
+    val width: Int?,
+    val height: Int?,
+    @SerializedName("supports_range") val supportsRange: Boolean,
+    @SerializedName("external_player") val externalPlayer: String,
 )
 
 data class EpisodeInfo(
@@ -65,6 +93,8 @@ data class VideoDetail(
     val height: Int?,
     @SerializedName("video_codec") val videoCodec: String,
     @SerializedName("audio_codec") val audioCodec: String,
+    val extension: String? = null,
+    @SerializedName("container_format") val containerFormat: String? = null,
     @SerializedName("poster_url") val posterUrl: String,
     val series: SeriesInfo?,
     val playback: PlaybackInfo,

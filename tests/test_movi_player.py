@@ -87,7 +87,7 @@ class MoviPlayerTests(unittest.TestCase):
         )
         return database.get_video_admin(video["id"])
 
-    def test_admin_mode_routes_mkv_and_ac3_to_movi(self):
+    def test_mkv_is_external_only_for_all_identities(self):
         video = self._video()
         admin = Identity(
             user_id=1,
@@ -108,11 +108,11 @@ class MoviPlayerTests(unittest.TestCase):
             admin_state = get_playback_state(video["id"], identity=admin)
             user_state = get_playback_state(video["id"], identity=user)
 
-        self.assertEqual(admin_state["engine"], "movi")
-        self.assertEqual(admin_state["engine_reason"], "matroska_container")
+        self.assertEqual(admin_state["engine"], "vlc")
+        self.assertEqual(admin_state["engine_reason"], "mkv_external_only")
         self.assertFalse(admin_state["playable"])
-        self.assertEqual(admin_state["state"], "cache_required")
-        self.assertEqual(user_state["engine"], "native")
+        self.assertEqual(admin_state["state"], "external_player_required")
+        self.assertEqual(user_state["engine"], "vlc")
         self.assertFalse(user_state["playable"])
 
     def test_ac3_mp4_uses_movi_before_native_direct_play(self):
@@ -148,7 +148,7 @@ class MoviPlayerTests(unittest.TestCase):
         self.assertEqual(state["reason_code"], "container_mismatch")
         self.assertIn("实际容器", state["message"])
 
-    def test_mkv_cache_ready_uses_movi_on_cached_mp4(self):
+    def test_existing_mkv_cache_is_ignored(self):
         video = self._video()
         cache_path = playback_cache_path({
             **video,
@@ -164,14 +164,12 @@ class MoviPlayerTests(unittest.TestCase):
                 video["id"],
                 identity=Identity(role=ROLE_GUEST),
             )
-        self.assertEqual(state["state"], "cache_ready")
-        self.assertEqual(state["engine"], "movi")
-        self.assertEqual(
-            state["playback_url"],
-            "/playback/{}".format(video["id"]),
-        )
+        self.assertEqual(state["state"], "external_player_required")
+        self.assertEqual(state["engine"], "vlc")
+        self.assertIsNone(state["playback_url"])
+        self.assertEqual(state["reason_code"], "mkv_external_only")
 
-    def test_off_mode_keeps_existing_playback_state(self):
+    def test_off_mode_does_not_change_mkv_external_policy(self):
         video = self._video()
         admin = Identity(
             user_id=1,
@@ -184,8 +182,8 @@ class MoviPlayerTests(unittest.TestCase):
             {"LOCAL_VIDEO_MOVI_PLAYER": "off"},
         ):
             state = get_playback_state(video["id"], identity=admin)
-        self.assertEqual(state["engine"], "native")
-        self.assertEqual(state["state"], "cache_required")
+        self.assertEqual(state["engine"], "vlc")
+        self.assertEqual(state["state"], "external_player_required")
 
     def test_default_mode_is_auto_for_guests(self):
         video = self._video()
@@ -195,10 +193,10 @@ class MoviPlayerTests(unittest.TestCase):
                 video["id"],
                 identity=Identity(role=ROLE_GUEST),
             )
-        self.assertEqual(state["engine"], "movi")
-        self.assertEqual(state["state"], "cache_required")
+        self.assertEqual(state["engine"], "vlc")
+        self.assertEqual(state["state"], "external_player_required")
 
-    def test_watch_page_exposes_movi_configuration_without_native_src(self):
+    def test_watch_page_routes_mkv_to_external_player_without_native_src(self):
         video = self._video()
         client = admin_client()
         with patch.dict(
@@ -208,9 +206,10 @@ class MoviPlayerTests(unittest.TestCase):
             page = client.get("/watch/{}".format(video["id"]))
 
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn('data-playback-engine="movi"', page.text)
+        self.assertIn('data-playback-engine="vlc"', page.text)
+        self.assertIn('data-external-only="1"', page.text)
         self.assertIn(
-            'data-movi-script="/static/vendor/movi-player/0.4.1/element.slim.js"',
+            'data-movi-script="/static/vendor/movi-player/0.4.1/element.slim.js?v=20261125-subtitle-forced"',
             page.text,
         )
         self.assertIn(
@@ -226,7 +225,7 @@ class MoviPlayerTests(unittest.TestCase):
         self.assertIsNotNone(video_tag)
         self.assertNotRegex(video_tag.group(0), r'\ssrc="')
 
-    def test_prepare_mkv_cache_endpoint_calls_remux_pipeline(self):
+    def test_prepare_mkv_is_rejected_without_cache_generation(self):
         video = self._video()
         client = admin_client()
         with patch(
@@ -236,12 +235,12 @@ class MoviPlayerTests(unittest.TestCase):
             response = client.post(
                 "/api/prepare/{}".format(video["id"])
             )
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(
-            response.json()["playback_url"],
-            "/playback/{}".format(video["id"]),
+            response.json()["detail"]["code"],
+            "mkv_external_only",
         )
-        prepare.assert_called_once()
+        prepare.assert_not_called()
 
     def test_vendor_assets_are_served_with_long_cache_and_wasm_type(self):
         client = admin_client()
@@ -256,6 +255,24 @@ class MoviPlayerTests(unittest.TestCase):
         self.assertIn("immutable", script.headers["cache-control"])
         self.assertEqual(wasm.status_code, 200)
         self.assertEqual(wasm.headers["content-type"], "application/wasm")
+
+    def test_movi_external_subtitles_use_playback_time_and_forced_cues(self):
+        source = (
+            config.PROJECT_ROOT
+            / "local_video_site"
+            / "static"
+            / "vendor"
+            / "movi-player"
+            / "0.4.1"
+            / "element.slim.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const I2 = this.getCurrentTime(), g2 = this._externalSubCues",
+            source,
+        )
+        self.assertIn("this._externalCueForced = A2.length > 0", source)
+        self.assertIn("if (this._externalCueForced) return;", source)
 
     def test_compare_page_is_admin_only_and_loads_both_players(self):
         video = self._video()

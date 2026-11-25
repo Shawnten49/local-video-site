@@ -11,6 +11,16 @@
 
 需要 Python 3.9+ 和 Google Chrome。
 
+HDR/DoVi 视频执行“编码转译为标准 MP4”时需要带 `zscale` 或 `libplacebo`
+滤镜的 FFmpeg。macOS Homebrew 默认 `ffmpeg` 不一定包含这些滤镜，可安装：
+
+```bash
+brew install ffmpeg-full
+```
+
+程序会自动优先查找 `ffmpeg-full`，也可以通过
+`LOCAL_VIDEO_FFMPEG=/path/to/ffmpeg` 显式指定。
+
 ```bash
 cd /path/to/local-video-site
 python3 -m venv --system-site-packages .venv
@@ -421,6 +431,16 @@ HLS 请求带有浏览器 AbortController 超时和分段重试。Worker 如果�
 
 首页视频卡片右上角提供“更换封面”。可以在弹窗中播放或拖动视频，将当前时间点
 截取为自定义封面，也可以恢复自动生成的封面。
+
+对于浏览器无法直接解码的高清 MKV，播放页会提供“用 VLC 播放原片”、
+“复制原始地址”和“下载 VLC 播放列表”。该模式直接读取服务器原始文件，
+不会生成播放缓存或转码。外部播放器不会同步网页内的播放进度和下一集状态。
+登录用户使用的外部播放地址带有短时签名，过期后可重新获取。
+
+在服务器本机打开网页时，“用 VLC 播放原片”会由本站调用 macOS 的
+`open -a VLC`，避免浏览器不支持 `vlc://` 自定义协议而静默失败。通过局域网
+从手机或其他电脑访问时，为防止在服务器电脑上误弹播放器，请使用“复制原始
+地址”或下载 M3U 播放列表后，在客户端用 VLC 打开。
 
 视频播放页顶部提供“删除视频”。需要经过两步确认并输入删除校验码。系统不会
 自动生成通用默认校验码；管理员可以在“账号管理 → 参数配置”中设置或更换，

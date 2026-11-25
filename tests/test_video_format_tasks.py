@@ -240,6 +240,10 @@ class VideoFormatTaskTests(unittest.TestCase):
                 "local_video_site.media.editing.format._run_ffmpeg",
                 side_effect=fake_ffmpeg,
             ),
+            patch(
+                "local_video_site.media.editing.format._available_ffmpeg_filters",
+                return_value={"zscale", "tonemap", "scale", "format"},
+            ),
         ):
             result = video_format_tasks.process_job(job)
 
@@ -268,6 +272,21 @@ class VideoFormatTaskTests(unittest.TestCase):
         original = database.get_video_admin(video["id"])
         self.assertEqual(original["video_codec"], "h265")
         self.assertEqual(original["audio_codec"], "ac3")
+
+    def test_hdr_filter_failure_explains_missing_ffmpeg_capability(self):
+        source_info = {
+            "color_transfer": "smpte2084",
+            "color_primaries": "bt2020",
+        }
+
+        with self.assertRaises(video_format_tasks.VideoFormatError) as raised:
+            video_format_tasks._video_filter_for_capabilities(
+                source_info,
+                {"tonemap", "scale", "format"},
+            )
+
+        self.assertEqual(raised.exception.code, "ffmpeg_hdr_filter_missing")
+        self.assertIn("ffmpeg-full", str(raised.exception))
 
     def test_transcode_backup_can_be_deleted(self):
         video, _, _ = self._video()
@@ -450,6 +469,10 @@ class VideoFormatTaskTests(unittest.TestCase):
             user.post("/api/manage/videos/1/format-job").status_code,
             403,
         )
+        self.assertEqual(
+            user.get("/api/manage/videos/1/format-options").status_code,
+            403,
+        )
 
     def test_format_table_has_no_foreign_keys(self):
         with database.connect() as connection:
@@ -472,6 +495,8 @@ class VideoFormatTaskTests(unittest.TestCase):
         )
         self.assertIn("容器封装", page.text)
         self.assertIn("编码转译", page.text)
+        self.assertIn("外挂字幕", page.text)
+        self.assertIn('name="format-subtitle-mode"', page.text)
         self.assertIn(
             'value="container_remux" checked',
             page.text,
@@ -492,6 +517,26 @@ class VideoFormatTaskTests(unittest.TestCase):
         self.assertEqual(jobs[0]["status"], "pending")
         self.assertEqual(jobs[0]["operation"], "container_remux")
 
+        with patch(
+            "local_video_site.media.subtitles.probe_subtitle_streams",
+            return_value=[
+                {
+                    "index": 3,
+                    "codec": "ass",
+                    "language": "chi",
+                    "title": "中英双语",
+                },
+            ],
+        ):
+            options = client.get(
+                "/api/manage/videos/{}/format-options".format(video["id"])
+            )
+        self.assertEqual(options.status_code, 200, options.text)
+        self.assertEqual(
+            options.json()["subtitle_options"]["default_stream_index"],
+            3,
+        )
+
         rejected = client.post(
             "/api/manage/videos/{}/format-job".format(video["id"]),
             json={
@@ -501,6 +546,86 @@ class VideoFormatTaskTests(unittest.TestCase):
             },
         )
         self.assertEqual(rejected.status_code, 422)
+
+    def test_format_options_prefer_bilingual_and_allow_manual_text_tracks(self):
+        video, _, _ = self._video()
+        streams = [
+            {
+                "index": 2,
+                "codec": "hdmv_pgs_subtitle",
+                "language": "chi",
+                "title": "中英 PGS",
+            },
+            {
+                "index": 3,
+                "codec": "ass",
+                "language": "chi",
+                "title": "中英双语 ASS",
+            },
+            {
+                "index": 6,
+                "codec": "subrip",
+                "language": "chi",
+                "title": "简体中文",
+            },
+        ]
+        with patch(
+            "local_video_site.media.subtitles.probe_subtitle_streams",
+            return_value=streams,
+        ):
+            selection = video_format_tasks.resolve_subtitle_selection(
+                Path(video["path"]),
+                "auto",
+            )
+            manual = video_format_tasks.resolve_subtitle_selection(
+                Path(video["path"]),
+                "manual",
+                [3, 6],
+                6,
+            )
+            with self.assertRaises(video_format_tasks.VideoFormatError):
+                video_format_tasks.resolve_subtitle_selection(
+                    Path(video["path"]),
+                    "manual",
+                    [2],
+                )
+
+        self.assertEqual(selection["subtitle_stream_indexes"], [3, 6])
+        self.assertEqual(selection["default_subtitle_stream_index"], 3)
+        self.assertEqual(manual["subtitle_stream_indexes"], [3, 6])
+        self.assertEqual(manual["default_subtitle_stream_index"], 6)
+
+    def test_format_job_persists_subtitle_mode_and_tracks(self):
+        video, _, _ = self._video()
+        streams = [
+            {
+                "index": 3,
+                "codec": "ass",
+                "language": "chi",
+                "title": "中英双语",
+            },
+            {
+                "index": 6,
+                "codec": "subrip",
+                "language": "chi",
+                "title": "简体中文",
+            },
+        ]
+        with patch(
+            "local_video_site.media.subtitles.probe_subtitle_streams",
+            return_value=streams,
+        ):
+            created = video_format_tasks.create_jobs(
+                [video["id"]],
+                subtitle_mode="manual",
+                subtitle_stream_indexes=[3],
+                default_subtitle_stream_index=3,
+            )
+        self.assertEqual(created["created"], 1)
+        jobs = video_format_tasks.list_jobs()["items"]
+        self.assertEqual(jobs[0]["subtitle_mode"], "manual")
+        self.assertEqual(jobs[0]["subtitle_streams_json"], "[3]")
+        self.assertEqual(jobs[0]["default_subtitle_stream_index"], 3)
 
     def test_disguised_mpegts_mp4_standardizes_in_place_with_backup(self):
         video, _, _ = self._video(
@@ -623,8 +748,8 @@ class VideoFormatTaskTests(unittest.TestCase):
                 },
             )
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn('id="playback-standardize"', page.text)
-        self.assertIn('id="standardize-video-dialog"', page.text)
+        self.assertNotIn('id="playback-standardize"', page.text)
+        self.assertNotIn('id="standardize-video-dialog"', page.text)
         self.assertEqual(preview.status_code, 200, preview.text)
         self.assertEqual(preview.json()["strategy"], "remux")
         self.assertEqual(created.status_code, 200, created.text)

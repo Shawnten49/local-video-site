@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, Optional
 
 from local_video_site.core import config
@@ -140,6 +141,30 @@ def get_playback_state(
         **video,
         "path": str(resolution["path"]),
     }
+    if Path(resolved_video["path"]).suffix.lower() == ".mkv":
+        return {
+            "video_id": int(video_id),
+            "state": "external_player_required",
+            "playable": False,
+            "reason_code": "mkv_external_only",
+            "storage_kind": resolution["storage_kind"],
+            "storage_label": storage_label,
+            "title": "MKV 视频需要使用 VLC 播放",
+            "message": (
+                "MKV 将直接使用 VLC 打开，不再生成浏览器播放缓存。"
+                "外部播放不会同步应用内播放进度和自动下一集。"
+            ),
+            "action_text": "请使用 VLC 打开原始视频",
+            "retryable": False,
+            "needs_cache": False,
+            "cache_ready": False,
+            "playback_url": None,
+            "transcode": False,
+            "engine": "vlc",
+            "engine_reason": "mkv_external_only",
+            "playback_mode": "external_vlc",
+            "external_player": "vlc",
+        }
     resolved_video = ensure_playback_technical_info(resolved_video)
     if requires_transcode(resolved_video):
         return {
@@ -183,6 +208,7 @@ def get_playback_state(
             "transcode": False,
             "engine": "movi",
             "engine_reason": movi_reason,
+            "playback_mode": "native",
         }
     needs_cache = requires_playback_cache(resolved_video)
     cache_ready = bool(needs_cache and prepared_playback_path(resolved_video))
@@ -236,6 +262,7 @@ def get_playback_state(
             "transcode": transcode,
             "engine": engine,
             "engine_reason": movi_reason,
+            "playback_mode": "native",
         }
     return {
         "video_id": int(video_id),
@@ -258,4 +285,5 @@ def get_playback_state(
         "transcode": False,
         "engine": engine,
         "engine_reason": movi_reason,
+        "playback_mode": "native",
     }

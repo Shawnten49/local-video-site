@@ -2061,6 +2061,74 @@ h1 {
   display: block;
   background: black;
 }
+.player-shell video.is-external-only {
+  display: none;
+}
+.mkv-external-player {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, .85fr) minmax(0, 1.15fr);
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 18px;
+  background: #050608;
+}
+.mkv-external-player > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .48;
+}
+.mkv-external-player > div {
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  padding: clamp(28px, 5vw, 68px);
+  background: linear-gradient(90deg, rgba(5,6,8,.15), rgba(5,6,8,.92));
+}
+.mkv-external-player h2,
+.mkv-external-player p {
+  margin: 0;
+}
+.mkv-external-player h2 {
+  font-size: clamp(24px, 3vw, 40px);
+}
+.mkv-external-player p {
+  max-width: 720px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.mkv-external-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mkv-external-actions a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.player-shell video::cue {
+  color: #fff;
+  background: transparent;
+  text-shadow: none;
+  font-size: 28px;
+}
+@media (max-width: 760px) {
+  .mkv-external-player {
+    grid-template-columns: 1fr;
+  }
+  .mkv-external-player > img {
+    position: absolute;
+    inset: 0;
+  }
+  .mkv-external-player > div {
+    min-height: 420px;
+    background: linear-gradient(180deg, rgba(5,6,8,.35), rgba(5,6,8,.95));
+  }
+}
 .episode-navigation {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2223,7 +2291,8 @@ h1 {
   margin-top: 7px;
 }
 .playback-retry-button,
-.playback-standardize-button {
+.playback-standardize-button,
+.playback-external-button {
   justify-self: start;
   min-height: 36px;
   padding: 0 14px;
@@ -2240,8 +2309,15 @@ h1 {
   background: rgba(255, 79, 100, .2);
 }
 .playback-standardize-button[hidden] { display: none; }
+.playback-external-button {
+  border-color: rgba(99, 217, 160, .38);
+  background: rgba(99, 217, 160, .14);
+  color: #bdf3d7;
+}
+.playback-external-button[hidden] { display: none; }
 .playback-retry-button:hover,
-.playback-standardize-button:hover {
+.playback-standardize-button:hover,
+.playback-external-button:hover {
   border-color: rgba(255, 224, 168, .6);
   background: rgba(255, 255, 255, .12);
 }
@@ -2278,6 +2354,14 @@ h1 {
 }
 .standardize-confirm input {
   margin-top: 3px;
+}
+.watch-subtitle-status {
+  margin: 0;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, .025);
+  color: var(--muted);
+  font-size: 11px;
 }
 .watch-meta {
   display: grid;
@@ -3643,6 +3727,9 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   opacity: .6;
   cursor: not-allowed;
 }
+.watch-source-link[hidden] {
+  display: none;
+}
 .watch-metadata-refresh-status {
   margin: 0;
   color: #9de9c1 !important;
@@ -4894,6 +4981,79 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   border-radius: 5px;
   background: rgba(0,0,0,.22);
   color: #c9c1ff;
+}
+.format-mp4-subtitles {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.format-mp4-subtitles legend {
+  margin-bottom: 9px;
+  color: var(--text);
+  font-weight: 750;
+}
+.format-subtitle-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.format-subtitle-modes label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.format-subtitle-priority {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.format-subtitle-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.format-subtitle-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255,255,255,.025);
+}
+.format-subtitle-row.is-disabled {
+  opacity: .55;
+}
+.format-subtitle-row strong,
+.format-subtitle-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.format-subtitle-row strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.format-subtitle-row small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.format-subtitle-row em {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
 }
 .format-mp4-warning {
   margin: 0;

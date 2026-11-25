@@ -7,7 +7,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ watch_heading|truncate(60, True, "…") }} · 本地视频库</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261122-standardize-video">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-mkv-vlc">
 </head>
 <body class="watch-page">
   <header class="site-header compact topbar">
@@ -49,26 +49,79 @@
 
   <main class="watch-main">
     <div class="player-shell">
+      {% if video_extension|lower == ".mkv" %}
+      <section class="mkv-external-player" aria-labelledby="mkv-external-title">
+        <img src="{{ poster_url }}" alt="">
+        <div>
+          <p class="eyebrow">EXTERNAL PLAYER</p>
+          <h2 id="mkv-external-title">此视频需要使用 VLC 播放</h2>
+          <p>
+            MKV 不再生成应用内播放缓存。VLC 可以保留原始视频、音频和字幕效果，
+            但不会同步应用内播放进度或自动下一集。
+          </p>
+          <div class="mkv-external-actions">
+            <button
+              id="open-vlc-playback"
+              class="download-primary-button"
+              type="button"
+              data-open-vlc-playback
+            >用 VLC 打开</button>
+            <button
+              id="copy-external-playback"
+              class="download-secondary-button"
+              type="button"
+              data-copy-external-playback
+            >复制视频地址</button>
+            <a
+              id="download-external-playlist"
+              class="download-secondary-button"
+              href="/api/external-playback/{{ video.id }}/playlist.m3u"
+              download
+            >下载 VLC 播放列表</a>
+          </div>
+          <p
+            id="external-playback-status"
+            class="watch-metadata-refresh-status"
+            role="status"
+            aria-live="polite"
+            hidden
+          ></p>
+        </div>
+      </section>
+      {% endif %}
       <video id="player" controls preload="metadata" playsinline
+        {% if video_extension|lower == ".mkv" %}class="is-external-only"{% endif %}
+        subtitlesize="0.72"
+        subtitlebg="0"
+        subtitleedge="none"
         poster="{{ poster_url }}"
         data-state-url="/api/playback-state/{{ video.id }}"
         data-initial-state="{{ playback.state }}"
         data-prepare-url="/api/prepare/{{ video.id }}"
         data-playback-url="{{ playback.playback_url or '' }}"
         data-playback-engine="{{ playback.engine or 'native' }}"
-        data-movi-script="{{ movi_asset_base }}/element.slim.js"
+        data-movi-script="{{ movi_asset_base }}/element.slim.js?v=20261125-subtitle-forced"
         data-movi-wasm="{{ movi_asset_base }}/movi.wasm"
         data-movi-buffer-mb="{{ movi_buffer_mb }}"
         data-movi-load-timeout="{{ movi_load_timeout_seconds }}"
         data-video-codec="{{ video.video_codec or '' }}"
         data-audio-codec="{{ video.audio_codec or '' }}"
-        {% if is_admin %}
-        data-standardize-preview-url="/api/videos/{{ video.id }}/standardization-preview"
-        data-standardize-url="/api/videos/{{ video.id }}/standardize"
-        data-video-path="{{ video.path }}"
-        data-video-mtime-ns="{{ video.mtime_ns }}"
-        {% endif %}
-        {% if playback.playable and playback.engine != "movi" %}src="{{ playback.playback_url }}"{% endif %}></video>
+        data-video-extension="{{ video_extension }}"
+        data-external-only="{{ 1 if video_extension|lower == '.mkv' else 0 }}"
+        data-external-playback-url="/api/external-playback/{{ video.id }}"
+        data-external-playlist-url="/api/external-playback/{{ video.id }}/playlist.m3u"
+        {% if playback.playable and playback.engine != "movi" %}src="{{ playback.playback_url }}"{% endif %}>
+        {% for subtitle in subtitle_assets %}
+        <track
+          kind="subtitles"
+          src="/subtitle/{{ subtitle.id }}?v={{ (subtitle.updated_at or '')|urlencode }}"
+          srclang="{{ subtitle.track_language or subtitle.language or 'und' }}"
+          label="{{ subtitle.title or subtitle.language or '字幕' }}"
+          {% if subtitle.default_track %}default{% endif %}
+        >
+        {% endfor %}
+      </video>
+      {% if video_extension|lower != ".mkv" %}
       <div
         id="playback-warning"
         class="playback-warning playback-state-{{ playback.state }}"
@@ -86,13 +139,25 @@
             {% if not playback.retryable %}hidden{% endif %}
           >重新检测</button>
           <button
-            id="playback-standardize"
-            class="playback-standardize-button"
+            class="playback-external-button"
             type="button"
+            data-open-vlc-playback
             hidden
-          >转标准码</button>
+          >用 VLC 播放原片</button>
+          <button
+            class="playback-external-button"
+            type="button"
+            data-copy-external-playback
+            hidden
+          >复制原始地址</button>
         </div>
       </div>
+      {% if subtitle_assets %}
+      <p class="watch-subtitle-status">
+        已加载 {{ subtitle_assets|length }} 条文本字幕，可在播放器字幕菜单中切换。
+      </p>
+      {% endif %}
+      {% endif %}
     </div>
 
     <nav class="episode-navigation" aria-label="视频连续播放">
@@ -249,6 +314,38 @@
       {% endif %}
       <p class="shortcuts">快捷键：空格播放/暂停 · ←/→ 快退/快进 5 秒 · J/L 10 秒 · M 静音 · F 全屏</p>
     </section>
+
+    {% if video_extension|lower != ".mkv" and ((video.video_codec or "")|lower in ["hevc", "h265"] or (video.audio_codec or "")|lower in ["truehd", "ac3", "eac3"]) %}
+    <section class="watch-source watch-external-source" aria-label="外部播放">
+      <div class="watch-source-actions">
+        <button
+          id="open-vlc-playback"
+          class="watch-source-link"
+          type="button"
+          data-open-vlc-playback
+        >用 VLC 播放原片</button>
+        <button
+          id="copy-external-playback"
+          class="watch-source-link"
+          type="button"
+          data-copy-external-playback
+        >复制原始地址</button>
+        <a
+          id="download-external-playlist"
+          class="watch-source-link"
+          href="/api/external-playback/{{ video.id }}/playlist.m3u"
+          download
+        >下载 VLC 播放列表</a>
+      </div>
+      <p
+        id="external-playback-status"
+        class="watch-metadata-refresh-status"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></p>
+    </section>
+    {% endif %}
 
     {% if is_admin %}
     <section
@@ -492,54 +589,6 @@
     </div>
   </dialog>
 
-  {% if is_admin %}
-  <dialog
-    id="standardize-video-dialog"
-    class="management-dialog format-mp4-dialog"
-    aria-labelledby="standardize-video-title"
-  >
-    <form id="standardize-video-form" class="management-dialog-card">
-      <header class="download-dialog-header">
-        <div>
-          <p class="eyebrow">STANDARD MP4</p>
-          <h2 id="standardize-video-title">转标准码</h2>
-        </div>
-        <button
-          class="cover-dialog-close"
-          type="button"
-          data-close-standardize
-          aria-label="关闭"
-        >×</button>
-      </header>
-      <section class="standardize-summary">
-        <strong id="standardize-strategy">正在检查视频格式</strong>
-        <span id="standardize-source"></span>
-        <span id="standardize-target"></span>
-      </section>
-      <p id="standardize-warning" class="format-mp4-warning" hidden>
-        重新编码会改变视频和音频数据，处理时间较长。
-      </p>
-      <label id="standardize-lossy-confirm" class="standardize-confirm" hidden>
-        <input id="standardize-confirm-lossy" type="checkbox">
-        <span>我了解此操作需要重新编码，画质和音质可能发生变化。</span>
-      </label>
-      <p id="standardize-error" class="download-form-error" role="alert"></p>
-      <footer class="edit-video-actions">
-        <button
-          class="download-secondary-button"
-          type="button"
-          data-close-standardize
-        >取消</button>
-        <button
-          id="confirm-standardize-video"
-          class="download-primary-button"
-          type="submit"
-        >确认转标准码</button>
-      </footer>
-    </form>
-  </dialog>
-  {% endif %}
-
   <dialog id="delete-video-dialog" class="delete-dialog">
     <div class="delete-dialog-card">
       <section id="delete-confirm-step">
@@ -580,7 +629,7 @@
     </div>
   </dialog>
   {% endif %}
-  <script type="module" src="/static/player.js?v=20261122-standardize-video"></script>
+  <script type="module" src="/static/player.js?v=20261125-mkv-vlc"></script>
   <script src="/static/refresh-video-metadata.js"></script>
   <script src="/static/edit-manual-categories.js"></script>
   <script src="/static/video-title.js"></script>

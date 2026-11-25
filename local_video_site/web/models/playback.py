@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -50,6 +50,9 @@ class VideoFormatJobCreate(BaseModel):
     confirmed: bool = False
     confirm_lossy: bool = False
     confirmation_version: int = 1
+    subtitle_mode: str = "auto"
+    subtitle_stream_indexes: List[int] = []
+    default_subtitle_stream_index: Optional[int] = None
 
 
 class VideoStandardizeCreate(BaseModel):
@@ -57,3 +60,6 @@ class VideoStandardizeCreate(BaseModel):
     confirm_lossy: bool = False
     expected_path: str = ""
     expected_mtime_ns: Optional[str] = None
+    subtitle_mode: str = "auto"
+    subtitle_stream_indexes: List[int] = []
+    default_subtitle_stream_index: Optional[int] = None

@@ -5,10 +5,14 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.graphics.Color as AndroidColor
+import android.net.Uri
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -95,13 +99,19 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.shawn.localvideotv.R
 import com.shawn.localvideotv.NextEpisodeUi
 import com.shawn.localvideotv.data.PlaybackProgressStore
+import com.shawn.localvideotv.PlayerSubtitleUi
 import com.shawn.localvideotv.PlayerUiState
 import com.shawn.localvideotv.ui.components.FocusableButton
 import com.shawn.localvideotv.ui.theme.AccentSoft
@@ -117,6 +127,7 @@ import kotlin.math.min
 
 @Composable
 @SuppressLint("UnsafeOptInUsageError")
+@OptIn(UnstableApi::class)
 fun PlayerScreen(
     videoId: Int,
     state: PlayerUiState,
@@ -124,6 +135,7 @@ fun PlayerScreen(
     onExit: () -> Unit,
     onRetry: () -> Unit,
     onPlayNext: () -> Unit,
+    onOpenExternal: () -> Unit,
     isTelevision: Boolean,
 ) {
     val context = LocalContext.current
@@ -160,6 +172,7 @@ fun PlayerScreen(
             state = state,
             onRetry = onRetry,
             onExit = onExit,
+            onOpenExternal = onOpenExternal,
         )
         return
     }
@@ -275,8 +288,45 @@ fun PlayerScreen(
         requestExitPlayer()
     }
 
-    DisposableEffect(player, streamUrl) {
+    DisposableEffect(player, streamUrl, state.subtitleTracks) {
         val savedPosition = progressStore.position(videoId)
+        var defaultSubtitleSelected = false
+        val defaultSubtitle = state.subtitleTracks.firstOrNull {
+            it.isDefault
+        } ?: state.subtitleTracks.firstOrNull()
+
+        fun selectDefaultSubtitle(tracks: Tracks) {
+            if (defaultSubtitleSelected || defaultSubtitle == null) {
+                return
+            }
+            val match = tracks.groups.asSequence()
+                .filter { it.type == C.TRACK_TYPE_TEXT }
+                .mapNotNull { group ->
+                    val trackIndex = (0 until group.length).firstOrNull {
+                        group.getTrackFormat(it).id ==
+                            defaultSubtitle.id.toString()
+                    }
+                    if (trackIndex == null) {
+                        null
+                    } else {
+                        group to trackIndex
+                    }
+                }
+                .firstOrNull()
+                ?: return
+            player.trackSelectionParameters =
+                player.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                    .setOverrideForType(
+                        TrackSelectionOverride(
+                            match.first.mediaTrackGroup,
+                            match.second,
+                        )
+                    )
+                    .build()
+            defaultSubtitleSelected = true
+        }
+
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
@@ -301,13 +351,27 @@ fun PlayerScreen(
                 }
             }
 
+            override fun onTracksChanged(tracks: Tracks) {
+                selectDefaultSubtitle(tracks)
+            }
+
             override fun onPlayerError(playerError: PlaybackException) {
                 error = "当前设备无法播放该视频：${playerError.errorCodeName}"
                 showControls = true
             }
         }
         player.addListener(listener)
-        player.setMediaItem(MediaItem.fromUri(streamUrl))
+        player.trackSelectionParameters =
+            player.trackSelectionParameters.buildUpon()
+                .setPreferredTextLanguage(defaultSubtitle?.language)
+                .setSelectUndeterminedTextLanguage(defaultSubtitle == null)
+                .build()
+        player.setMediaItem(
+            buildMediaItem(
+                streamUrl = streamUrl,
+                subtitleTracks = state.subtitleTracks,
+            )
+        )
         if (savedPosition > 5_000L) player.seekTo(savedPosition)
         player.prepare()
         player.playWhenReady = true
@@ -431,6 +495,25 @@ fun PlayerScreen(
                     useController = false
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    subtitleView?.apply {
+                        setApplyEmbeddedStyles(false)
+                        setApplyEmbeddedFontSizes(false)
+                        setFixedTextSize(
+                            TypedValue.COMPLEX_UNIT_SP,
+                            if (isTelevision) 24f else 18f,
+                        )
+                        setBottomPaddingFraction(0.08f)
+                        setStyle(
+                            CaptionStyleCompat(
+                                AndroidColor.WHITE,
+                                AndroidColor.TRANSPARENT,
+                                AndroidColor.TRANSPARENT,
+                                CaptionStyleCompat.EDGE_TYPE_NONE,
+                                AndroidColor.TRANSPARENT,
+                                null,
+                            )
+                        )
+                    }
                     isFocusable = false
                     isClickable = false
                     this.player = player
@@ -655,10 +738,49 @@ fun PlayerScreen(
             }
         }
 
+        error?.let { message ->
+            Box(Modifier.fillMaxSize().zIndex(65f)) {
+                PlayerPlaybackErrorPanel(
+                    message = message,
+                    onOpenExternal = onOpenExternal,
+                    onReturn = ::requestExitPlayer,
+                )
+            }
+        }
+
         if (showExitCover || exiting) {
             Box(Modifier.fillMaxSize().background(Color.Black).zIndex(70f))
         }
     }
+}
+
+@OptIn(UnstableApi::class)
+private fun buildMediaItem(
+    streamUrl: String,
+    subtitleTracks: List<PlayerSubtitleUi>,
+): MediaItem {
+    val builder = MediaItem.Builder().setUri(streamUrl)
+    if (subtitleTracks.isNotEmpty()) {
+        builder.setSubtitleConfigurations(
+            subtitleTracks.map { track ->
+                MediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
+                    .setId(track.id.toString())
+                    .setMimeType(track.mimeType)
+                    .setLanguage(track.language)
+                    .setLabel(track.label)
+                    .setRoleFlags(C.ROLE_FLAG_SUBTITLE)
+                    .setSelectionFlags(
+                        if (track.isDefault) {
+                            C.SELECTION_FLAG_DEFAULT
+                        } else {
+                            0
+                        }
+                    )
+                    .build()
+            }
+        )
+    }
+    return builder.build()
 }
 
 @Composable
@@ -962,10 +1084,65 @@ private fun PlayerEndedPanel(
 }
 
 @Composable
+private fun PlayerPlaybackErrorPanel(
+    message: String,
+    onOpenExternal: () -> Unit,
+    onReturn: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xCC080A0F)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 620.dp)
+                .background(Panel, RoundedCornerShape(18.dp))
+                .padding(30.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "当前播放器无法播放该视频",
+                color = TextPrimary,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = message,
+                color = TextSecondary,
+                fontSize = 14.sp,
+                lineHeight = 22.sp,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "可以尝试用 VLC 打开原始 MKV。外部播放不会同步应用内进度。",
+                color = TextSecondary,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FocusableButton(
+                    text = "用 VLC 播放原片",
+                    onClick = onOpenExternal,
+                    primary = true,
+                )
+                FocusableButton(
+                    text = "返回",
+                    onClick = onReturn,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlayerLoadState(
     state: PlayerUiState,
     onRetry: () -> Unit,
     onExit: () -> Unit,
+    onOpenExternal: () -> Unit,
 ) {
     BackHandler {
         onExit()
@@ -985,6 +1162,10 @@ private fun PlayerLoadState(
                         "重试",
                         onClick = onRetry,
                         primary = true,
+                    )
+                    FocusableButton(
+                        "用 VLC 播放原片",
+                        onClick = onOpenExternal,
                     )
                     FocusableButton("返回", onClick = onExit)
                 }

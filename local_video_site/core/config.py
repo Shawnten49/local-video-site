@@ -52,6 +52,15 @@ DOWNLOAD_CONTROL_DIR = Path(
 PREVIEW_DIR = Path(
     os.environ.get("LOCAL_VIDEO_PREVIEW_DIR", DATA_DIR / "previews")
 ).expanduser()
+SUBTITLE_DIR = Path(
+    os.environ.get("LOCAL_VIDEO_SUBTITLE_DIR", DATA_DIR / "subtitles")
+).expanduser()
+PLAYBACK_TOKEN_SECRET_PATH = Path(
+    os.environ.get(
+        "LOCAL_VIDEO_PLAYBACK_TOKEN_SECRET",
+        DATA_DIR / ".playback-token-secret",
+    )
+).expanduser()
 DEFAULT_ROOTS = [
     PROJECT_ROOT / "download",
     PROJECT_ROOT / "download-full",
@@ -153,8 +162,18 @@ def playback_cache_protect_seconds() -> int:
     )
 
 
+def external_playback_token_seconds() -> int:
+    return _settings().get_int(
+        "playback.external_token_seconds"
+    )
+
+
 def ffmpeg_concurrency() -> int:
     return _settings().get_int("media.ffmpeg_concurrency")
+
+
+def ffmpeg_path() -> str:
+    return _settings().get_string("media.ffmpeg_path")
 
 
 def ffmpeg_interactive_wait_seconds() -> float:
@@ -703,6 +722,8 @@ def ensure_data_directories() -> None:
     DOWNLOAD_TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)
     DOWNLOAD_CONTROL_DIR.mkdir(parents=True, exist_ok=True)
     PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    SUBTITLE_DIR.mkdir(parents=True, exist_ok=True)
     DELETE_PASSWORD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PLAYBACK_TOKEN_SECRET_PATH.parent.mkdir(parents=True, exist_ok=True)
     DELETE_QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)

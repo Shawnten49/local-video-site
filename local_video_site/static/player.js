@@ -1,4 +1,6 @@
-import { createPlaybackSession } from "./playback-session.js";
+import {
+  createPlaybackSession,
+} from "./playback-session.js?v=20261125-subtitles";
 
 const nativePlayer = document.getElementById("player");
 if (nativePlayer) initialize();
@@ -44,6 +46,20 @@ async function initialize() {
   const standardizeConfirmButton = document.getElementById(
     "confirm-standardize-video",
   );
+  const externalPlaybackUrl =
+    nativePlayer.dataset.externalPlaybackUrl || "";
+  const externalPlaylistUrl =
+    nativePlayer.dataset.externalPlaylistUrl || "";
+  const externalPlaybackStatus = document.getElementById(
+    "external-playback-status",
+  );
+  const externalOpenButtons = document.querySelectorAll(
+    "[data-open-vlc-playback]",
+  );
+  const externalCopyButtons = document.querySelectorAll(
+    "[data-copy-external-playback]",
+  );
+  const externalOnly = nativePlayer.dataset.externalOnly === "1";
   const stateUrl = nativePlayer.dataset.stateUrl;
   const prepareUrl = nativePlayer.dataset.prepareUrl;
   const standardizePreviewUrl =
@@ -53,6 +69,109 @@ async function initialize() {
   let session = null;
   let standardizePreview = null;
   let standardizePollTimer = null;
+  let cachedExternalPlayback = null;
+
+  const supportsExternalPlayback = (() => {
+    const extension = String(
+      nativePlayer.dataset.videoExtension || "",
+    ).toLowerCase();
+    const videoCodec = String(
+      nativePlayer.dataset.videoCodec || "",
+    ).toLowerCase();
+    const audioCodec = String(
+      nativePlayer.dataset.audioCodec || "",
+    ).toLowerCase();
+    return (
+      extension === ".mkv"
+      || ["hevc", "h265"].includes(videoCodec)
+      || ["truehd", "ac3", "eac3"].includes(audioCodec)
+    );
+  })();
+
+  function showExternalStatus(message, error = false) {
+    if (!externalPlaybackStatus) return;
+    externalPlaybackStatus.hidden = !message;
+    externalPlaybackStatus.textContent = message || "";
+    externalPlaybackStatus.classList.toggle("is-error", error);
+  }
+
+  async function fetchExternalPlayback() {
+    if (!externalPlaybackUrl || !supportsExternalPlayback) {
+      throw new Error("当前视频不支持外部播放");
+    }
+    const response = await fetch(externalPlaybackUrl, {
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        payload.detail?.message || payload.detail || `HTTP ${response.status}`,
+      );
+    }
+    cachedExternalPlayback = payload;
+    return payload;
+  }
+
+  function absoluteExternalUrl(info) {
+    return new URL(info.stream_url, window.location.href).href;
+  }
+
+  async function copyText(value) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+
+  async function copyExternalPlaybackUrl() {
+    try {
+      const info = await fetchExternalPlayback();
+      await copyText(absoluteExternalUrl(info));
+      showExternalStatus("原始视频地址已复制。");
+    } catch (error) {
+      showExternalStatus(
+        error.message || "无法复制原始视频地址",
+        true,
+      );
+    }
+  }
+
+  async function openExternalPlayback() {
+    try {
+      showExternalStatus("正在请求本机 VLC 打开原片…");
+      const response = await fetch(`${externalPlaybackUrl}/open`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          payload.detail?.message
+            || payload.detail
+            || `HTTP ${response.status}`,
+        );
+      }
+      showExternalStatus(payload.message || "已请求 VLC 打开原始视频。");
+    } catch (error) {
+      const message = error.message || "无法启动 VLC";
+      showExternalStatus(
+        `${message} 可以改用“复制原始地址”或下载播放列表。`,
+        true,
+      );
+    }
+  }
 
   async function fetchStandardizationPreview() {
     if (!standardizePreviewUrl) return null;
@@ -101,6 +220,10 @@ async function initialize() {
     if (warningText) warningText.textContent = state.message || "";
     if (warningAction) warningAction.textContent = state.action_text || "";
     if (retryButton) retryButton.hidden = !state.retryable;
+    document.querySelectorAll("#playback-warning [data-open-vlc-playback], "
+      + "#playback-warning [data-copy-external-playback]").forEach((button) => {
+      button.hidden = !supportsExternalPlayback;
+    });
     if (
       refreshStandardize
       &&
@@ -120,6 +243,34 @@ async function initialize() {
   function hideWarning() {
     if (warning) warning.hidden = true;
     if (standardizeButton) standardizeButton.hidden = true;
+  }
+
+  externalOpenButtons.forEach((button) => {
+    button.addEventListener("click", openExternalPlayback);
+  });
+  externalCopyButtons.forEach((button) => {
+    button.addEventListener("click", copyExternalPlaybackUrl);
+  });
+  const externalPlaylistLink = document.getElementById(
+    "download-external-playlist",
+  );
+  if (externalPlaylistLink && externalPlaylistUrl) {
+    externalPlaylistLink.href = externalPlaylistUrl;
+  }
+  if (externalOnly) {
+    if (!supportsExternalPlayback) {
+      showExternalStatus("当前视频需要使用外部播放器打开。", true);
+      return;
+    }
+    if (["127.0.0.1", "localhost", "::1"].includes(location.hostname)) {
+      openExternalPlayback();
+    } else {
+      showExternalStatus(
+        "当前通过局域网访问，请复制视频地址后在 VLC 中打开，"
+        + "或下载播放列表。",
+      );
+    }
+    return;
   }
 
   function showCodecFailure(detail = "") {

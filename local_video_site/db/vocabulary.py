@@ -897,6 +897,11 @@ VALUE_SETS: Tuple[ValueSet, ...] = (
             ("transcoding", "编码转译 MP4", "执行有损转码。"),
             ("finalizing", "写入 MP4 索引", "整理输出容器。"),
             ("verifying", "校验输出文件", "校验输出文件是否有效。"),
+            (
+                "extracting_subtitles",
+                "提取字幕资产",
+                "提取并转换字幕后继续提交视频。",
+            ),
             ("committing", "更新视频数据", "更新路径和元数据。"),
             ("backing_up", "保留安全备份", "保留源文件备份。"),
             ("deleting_source", "清理原 MKV", "删除源文件。"),
@@ -939,6 +944,17 @@ VALUE_SETS: Tuple[ValueSet, ...] = (
         _terms(
             ("copy", "直接复制", "不重新编码。"),
             ("h264_aac_crf20", "H.264/AAC CRF20", "标准兼容有损转码配置。"),
+        ),
+        is_strict=True,
+    ),
+    ValueSet(
+        "format_subtitle_mode",
+        "格式任务字幕模式",
+        "MP4 转换时外挂字幕的选择方式。",
+        _terms(
+            ("auto", "自动选择", "按中英双语、中文、稳定兜底顺序提取文本字幕。"),
+            ("manual", "手动选择", "仅提取管理员勾选的文本字幕。"),
+            ("none", "不提取", "转换为 MP4 时不生成外挂字幕。"),
         ),
         is_strict=True,
     ),
@@ -1600,6 +1616,17 @@ COLUMNS: Tuple[ColumnVocabulary, ...] = (
         "format_profile",
         (("video_format_jobs", "profile_key", "格式处理的编码配置档。"),),
         default_value="copy",
+    ),
+    *_columns(
+        "format_subtitle_mode",
+        (
+            (
+                "video_format_jobs",
+                "subtitle_mode",
+                "格式任务的外挂字幕提取模式。",
+            ),
+        ),
+        default_value="auto",
     ),
     *_columns(
         "target_container",

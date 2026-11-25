@@ -141,6 +141,8 @@ def requires_transcode(video: dict) -> bool:
 
 
 def playback_preparation_mode(video: dict) -> str:
+    if Path(str(video.get("path") or "")).suffix.lower() == ".mkv":
+        return "external"
     if not requires_playback_cache(video):
         return "direct"
     if requires_transcode(video):
@@ -545,6 +547,8 @@ def prepare_playback_cache(
     timeout: float = 1800.0,
 ) -> Path:
     logger = logger or logging.getLogger(__name__)
+    if Path(str(video.get("path") or "")).suffix.lower() == ".mkv":
+        raise RuntimeError("MKV 视频仅支持使用 VLC 外部播放")
     if not requires_playback_cache(video):
         return Path(video["path"])
     mode = playback_preparation_mode(video)

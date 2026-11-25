@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import logging
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from local_video_site.core import config
 from local_video_site import database
 from local_video_site.identity.permissions.content import ACCESS_LEVEL_ADMIN, can_view, max_level_for
 from local_video_site.episodes.naming import episode_display_title
 from local_video_site.media.ffmpeg import FFmpegBusyError
+from local_video_site.media.mime import media_type_for_path
+from local_video_site.media.playback.external import (
+    ExternalPlaybackTokenError,
+    create_external_playback_token,
+    verify_external_playback_token,
+)
 from local_video_site.media.playback.engine import ensure_playback_technical_info, prepare_playback_cache, prepared_playback_path, requires_playback_cache, requires_transcode, touch_playback_cache
 from local_video_site.media.playback.state import get_playback_state
 from local_video_site.media.editing.format import (
@@ -33,18 +42,6 @@ from ..models.playback import VideoStandardizeCreate
 
 router = APIRouter()
 LOGGER = logging.getLogger("local_video_site")
-MEDIA_TYPES = {
-    ".mp4": "video/mp4",
-    ".m4v": "video/mp4",
-    ".webm": "video/webm",
-    ".mkv": "video/x-matroska",
-    ".mov": "video/quicktime",
-    ".ts": "video/mp2t",
-    ".avi": "video/x-msvideo",
-    ".rmvb": "video/vnd.rn-realvideo",
-}
-
-
 def _safe_return_path(value: str) -> str:
     return safe_return_path(value)
 
@@ -54,6 +51,94 @@ def _visible_video_or_404(request: Request, video_id: int) -> dict:
     if not video or not can_view(request.state.identity, video):
         raise HTTPException(status_code=404, detail="视频不存在")
     return video
+
+
+def _external_playback_payload(
+    request: Request,
+    video_id: int,
+) -> dict:
+    video = _visible_video_or_404(request, video_id)
+    resolution = resolve_video_storage(video)
+    if resolution["state"] == "external_offline":
+        state = get_playback_state(
+            video_id,
+            identity=request.state.identity,
+        )
+        raise HTTPException(status_code=409, detail=state["message"])
+    path = resolution["path"]
+    if not path.is_file():
+        database.mark_video_missing(video_id)
+        raise HTTPException(status_code=404, detail="视频文件不存在")
+    mime_type = media_type_for_path(path)
+    if mime_type is None:
+        raise HTTPException(status_code=415, detail="当前文件类型不支持外部播放")
+    identity = request.state.identity
+    token = create_external_playback_token(
+        video_id,
+        user_id=identity.user_id,
+    )
+    stream_url = "/media/{}?token={}".format(
+        video_id,
+        quote(token, safe=""),
+    )
+    return {
+        "video_id": int(video_id),
+        "title": str(video.get("title") or "未命名视频"),
+        "stream_url": stream_url,
+        "playlist_url": (
+            "/api/external-playback/{}/playlist.m3u".format(video_id)
+        ),
+        "mime_type": mime_type,
+        "extension": path.suffix.lower(),
+        "container_format": video.get("container_format") or "",
+        "video_codec": video.get("video_codec") or "",
+        "audio_codec": video.get("audio_codec") or "",
+        "width": video.get("width"),
+        "height": video.get("height"),
+        "supports_range": True,
+    }
+
+
+def _is_loopback_request(request: Request) -> bool:
+    client = request.client
+    if client is None:
+        return False
+    host = str(client.host or "").strip().lower()
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def _absolute_external_stream_url(request: Request, stream_url: str) -> str:
+    return urljoin(
+        str(request.base_url),
+        stream_url.lstrip("/"),
+    )
+
+
+def _open_vlc_on_desktop(stream_url: str) -> None:
+    if sys.platform != "darwin":
+        raise HTTPException(
+            status_code=501,
+            detail="当前系统不支持一键启动 VLC，请复制原始地址或下载播放列表。",
+        )
+    try:
+        completed = subprocess.run(
+            ["open", "-a", "VLC", stream_url],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="无法启动 VLC：{}".format(exc),
+        ) from exc
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise HTTPException(
+            status_code=503,
+            detail=detail or "无法启动 VLC，请确认已安装 VLC 播放器。",
+        )
 
 
 def _listing_neighbors(
@@ -253,6 +338,20 @@ def watch(request: Request, video_id: int, return_to: str = ""):
         metadata_video_id = int(video_id)
     poster_video_id = int(video_id)
     video_manual_categories = database.manual_categories_for_video(video_id)
+    subtitle_assets = database.list_video_subtitle_assets(
+        video_id,
+        playback_only=True,
+    )
+    for subtitle in subtitle_assets:
+        language = re.sub(
+            r"[^A-Za-z0-9-]",
+            "",
+            str(subtitle.get("language") or "und"),
+        ) or "und"
+        subtitle["track_language"] = "{}-x-s{}".format(
+            language,
+            int(subtitle["id"]),
+        )
     video_path = resolve_video_storage(video)["path"]
     return TEMPLATES.TemplateResponse(
         request=request,
@@ -263,6 +362,7 @@ def watch(request: Request, video_id: int, return_to: str = ""):
             "video_file_stem": video_path.stem,
             "video_extension": video_path.suffix,
             "video_directory": str(video_path.parent),
+            "subtitle_assets": subtitle_assets,
             "playback": playback_info,
             "identity": identity,
             "is_favorite": (
@@ -322,10 +422,86 @@ def api_playback_state(request: Request, video_id: int):
     )
 
 
+@router.get("/api/external-playback/{video_id}")
+def api_external_playback(request: Request, video_id: int):
+    return JSONResponse(
+        _external_playback_payload(request, video_id),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/api/external-playback/{video_id}/open")
+async def api_open_external_playback(request: Request, video_id: int):
+    if not _is_loopback_request(request):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "为避免在服务器电脑上误启动播放器，"
+                "一键 VLC 仅允许在服务器本机操作；远程设备请复制原始地址"
+                "或下载播放列表。"
+            ),
+        )
+    if request.headers.get("content-type", "").split(";", 1)[0].strip() != (
+        "application/json"
+    ):
+        raise HTTPException(
+            status_code=415,
+            detail="请求格式不受支持",
+        )
+    payload = _external_playback_payload(request, video_id)
+    absolute_url = _absolute_external_stream_url(
+        request,
+        payload["stream_url"],
+    )
+    await run_in_threadpool(_open_vlc_on_desktop, absolute_url)
+    return JSONResponse(
+        {
+            "status": "opened",
+            "message": "已请求 VLC 打开原始视频。",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/external-playback/{video_id}/playlist.m3u")
+def external_playback_playlist(request: Request, video_id: int):
+    payload = _external_playback_payload(request, video_id)
+    absolute_url = _absolute_external_stream_url(
+        request,
+        payload["stream_url"],
+    )
+    body = "#EXTM3U\n#EXTINF:-1,{}\n{}\n".format(
+        payload["title"].replace("\n", " ").replace("\r", " "),
+        absolute_url,
+    )
+    return Response(
+        content=body,
+        media_type="application/vnd.apple.mpegurl",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": (
+                'attachment; filename="video-{}.m3u"'.format(video_id)
+            ),
+        },
+    )
+
+
 @router.api_route("/media/{video_id}", methods=["GET", "HEAD"])
 def media(request: Request, video_id: int):
     video = database.get_video(video_id)
-    if video and not can_view(request.state.identity, video):
+    token_valid = False
+    token = request.query_params.get("token", "")
+    if video and token:
+        try:
+            verify_external_playback_token(token, video_id)
+        except ExternalPlaybackTokenError:
+            token_valid = False
+        else:
+            token_valid = True
+    if video and not token_valid and not can_view(
+        request.state.identity,
+        video,
+    ):
         raise HTTPException(status_code=404, detail="视频不存在")
     if not video:
         deleted = database.get_video_admin(video_id)
@@ -351,7 +527,7 @@ def media(request: Request, video_id: int):
         headers["Cache-Control"] = "private, no-store"
     return FileResponse(
         path=path,
-        media_type=MEDIA_TYPES.get(path.suffix.lower()),
+        media_type=media_type_for_path(path),
         content_disposition_type="inline",
         filename=path.name,
         headers=headers,
@@ -382,6 +558,14 @@ def playback(request: Request, video_id: int):
             raise HTTPException(status_code=410, detail="视频已删除")
         raise HTTPException(status_code=404, detail="视频不存在")
     resolution = resolve_video_storage(video)
+    if resolution["path"].suffix.lower() == ".mkv":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "mkv_external_only",
+                "message": "MKV 视频仅支持使用 VLC 外部播放",
+            },
+        )
     if resolution["state"] == "external_offline":
         playback_info = get_playback_state(
             video_id,
@@ -422,6 +606,14 @@ def prepare_video(request: Request, video_id: int):
         raise HTTPException(status_code=404, detail="视频不存在")
     if not video:
         raise HTTPException(status_code=404, detail="视频不存在")
+    if Path(str(video.get("path") or "")).suffix.lower() == ".mkv":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "mkv_external_only",
+                "message": "MKV 视频仅支持使用 VLC 外部播放",
+            },
+        )
     playback_info = get_playback_state(
         video_id,
         identity=request.state.identity,
@@ -503,6 +695,37 @@ def api_standardization_preview(request: Request, video_id: int):
     return standardization_preview(video)
 
 
+@router.get("/subtitle/{asset_id}")
+def subtitle_asset(request: Request, asset_id: int):
+    asset = database.get_subtitle_asset(asset_id)
+    if (
+        asset is None
+        or int(asset.get("missing") or 0)
+        or int(asset.get("is_deleted") or 0)
+        or not can_view(request.state.identity, asset)
+    ):
+        raise HTTPException(status_code=404, detail="字幕不存在")
+    path = Path(str(asset.get("storage_path") or ""))
+    try:
+        path.resolve().relative_to(config.SUBTITLE_DIR.resolve())
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="字幕不存在") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="字幕文件不存在")
+    media_type = (
+        "text/vtt; charset=utf-8"
+        if path.suffix.lower() == ".vtt"
+        else "application/octet-stream"
+    )
+    return FileResponse(
+        path=path,
+        media_type=media_type,
+        content_disposition_type="inline",
+        filename=path.name,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 @router.post("/api/videos/{video_id}/standardize")
 def api_standardize_video(
     request: Request,
@@ -525,6 +748,11 @@ def api_standardize_video(
                 int(selection.expected_mtime_ns)
                 if selection.expected_mtime_ns
                 else None
+            ),
+            subtitle_mode=selection.subtitle_mode,
+            subtitle_stream_indexes=selection.subtitle_stream_indexes,
+            default_subtitle_stream_index=(
+                selection.default_subtitle_stream_index
             ),
             created_by_user_id=identity.user_id,
             created_by_username=identity.username,

@@ -3,9 +3,11 @@ package com.shawn.localvideotv
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.shawn.localvideotv.data.PlaybackInfo
 import com.shawn.localvideotv.data.PlaybackProgressStore
 import com.shawn.localvideotv.data.ServerSettings
 import com.shawn.localvideotv.data.TvRepository
+import com.shawn.localvideotv.player.ExternalPlaybackTarget
 import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,11 +24,50 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    suspend fun originalPlayback(
+        videoId: Int,
+        fallbackTitle: String = "",
+    ): Result<ExternalPlaybackTarget> =
+        runCatching {
+            val info = try {
+                repository.api.originalPlayback(videoId)
+            } catch (error: HttpException) {
+                if (error.code() !in setOf(404, 405)) throw error
+                null
+            }
+            if (info != null) {
+                check(info.available) { "原始视频当前不可用" }
+                val url = repository.absoluteUrl(info.streamUrl)
+                    ?: error("服务器没有返回原始视频地址")
+                ExternalPlaybackTarget(
+                    url = url,
+                    mimeType = info.mimeType,
+                    title = info.title,
+                )
+            } else {
+                val url = repository.absoluteUrl("/media/{}".format(videoId))
+                    ?: error("服务器地址无效")
+                ExternalPlaybackTarget(
+                    url = url,
+                    mimeType = "video/x-matroska",
+                    title = fallbackTitle,
+                )
+            }
+        }
+
     fun start(videoId: Int) {
         _state.value = PlayerUiState(loading = true)
         viewModelScope.launch {
             runCatching {
                 val detail = repository.api.videoDetail(videoId)
+                if (
+                    detail.extension.equals(".mkv", ignoreCase = true)
+                    || detail.playback.playbackMode == "external_vlc"
+                ) {
+                    throw IllegalStateException(
+                        "MKV 视频需要使用 VLC 外部播放"
+                    )
+                }
                 val playback = if (detail.playback.playable) {
                     detail.playback
                 } else {
@@ -82,12 +123,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             title = "下一集",
                         )
                 }
+                val subtitleTracks = subtitleTracks(playback)
                 _state.value = PlayerUiState(
                     loading = false,
                     title = displayTitle,
                     episodeNumber = episodeNumber,
                     episodeTitle = episodeTitle,
                     streamUrl = streamUrl,
+                    subtitleTracks = subtitleTracks,
                     nextEpisode = nextEpisode,
                 )
             }.onFailure { error ->
@@ -103,6 +146,33 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val next = state.value.nextEpisode?.videoId ?: return
         start(next)
     }
+
+    private fun subtitleTracks(playback: PlaybackInfo): List<PlayerSubtitleUi> =
+        playback.subtitles
+            .orEmpty()
+            .mapNotNull { track ->
+                val url = repository.absoluteUrl(track.url)
+                    ?: return@mapNotNull null
+                PlayerSubtitleUi(
+                    id = track.id,
+                    url = url,
+                    language = track.language.ifBlank { "und" },
+                    label = track.label.ifBlank { "字幕" },
+                    mimeType = track.mimeType.ifBlank { "text/vtt" },
+                    isDefault = track.isDefault,
+                )
+            }
+            .let { tracks ->
+                if (
+                    tracks.isNotEmpty() &&
+                    tracks.none { it.isDefault }
+                ) {
+                    listOf(tracks.first().copy(isDefault = true)) +
+                        tracks.drop(1)
+                } else {
+                    tracks
+                }
+            }
 
     private fun Throwable.userMessage(): String = when (this) {
         is HttpException -> when (code()) {

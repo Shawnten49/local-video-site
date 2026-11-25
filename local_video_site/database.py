@@ -30,6 +30,7 @@ from .db.schema import (
     _ensure_video_trim_columns,
     baseline_schema_functions,
     ensure_media_policy_schema,
+    ensure_subtitle_schema,
     init_db,
 )
 from .db.transaction import now_iso as _now
@@ -63,6 +64,7 @@ from .repositories.jobs import *  # noqa: F401,F403
 from .repositories.migrations import *  # noqa: F401,F403
 from .repositories.series import *  # noqa: F401,F403
 from .repositories.storage import *  # noqa: F401,F403
+from .repositories.subtitles import *  # noqa: F401,F403
 from .repositories.storage import (  # noqa: F401
     _repair_storage_paths_relative_to_mount,
 )

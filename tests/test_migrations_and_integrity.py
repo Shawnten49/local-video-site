@@ -87,7 +87,7 @@ class VersionedMigrationAndIntegrityTests(unittest.TestCase):
         first = applied_migrations()
         self.assertEqual(
             [item["version"] for item in first],
-            [1, 2, 3, 4, 5, 6, 7],
+            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         )
         self.assertTrue(all(item["checksum"] for item in first))
         self.assertEqual(

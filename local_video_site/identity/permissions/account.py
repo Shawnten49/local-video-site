@@ -56,10 +56,12 @@ _PUBLIC_PREFIXES = (
     "/static/",
     "/watch/",
     "/api/tv/v1/",
+    "/api/external-playback/",
     "/api/playback-state/",
     "/api/prepare/",
     "/media/",
     "/playback/",
+    "/subtitle/",
     "/thumb/",
     "/preview/",
 )

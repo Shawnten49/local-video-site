@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
 from local_video_site.core import config
@@ -161,6 +161,55 @@ def _iter_video_files(source: Path) -> Iterable[Path]:
             yield path.resolve()
 
 
+def _duplicate_copy_name(name: str) -> str:
+    return re.sub(
+        r"\s*[（(]\s*(\d+)\s*[)）](?=\.[^.]+$)",
+        "",
+        str(name),
+        count=1,
+    )
+
+
+def _deduplicate_collection_files(
+    files: List[Path],
+) -> Tuple[List[Path], List[Dict]]:
+    """Ignore collision-suffixed copies with the same name and byte size."""
+
+    grouped: Dict[Tuple[str, str, int], List[Path]] = {}
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        normalized_name = _duplicate_copy_name(path.name).casefold()
+        key = (str(path.parent), normalized_name, int(size))
+        grouped.setdefault(key, []).append(path)
+
+    kept: List[Path] = []
+    duplicates: List[Dict] = []
+    for candidates in grouped.values():
+        ordered = sorted(
+            candidates,
+            key=lambda path: (
+                _duplicate_copy_name(path.name) != path.name,
+                path.name.casefold(),
+            ),
+        )
+        preferred = ordered[0]
+        kept.append(preferred)
+        for duplicate in ordered[1:]:
+            duplicates.append({
+                "path": str(duplicate),
+                "name": duplicate.name,
+                "kept_path": str(preferred),
+                "size": duplicate.stat().st_size,
+                "reason": "同名且大小相同的重复拷贝",
+            })
+    kept.sort(key=_episode_sort_key)
+    duplicates.sort(key=lambda item: item["path"])
+    return kept, duplicates
+
+
 def _parse_episode_file(path: Path) -> EpisodeFileInfo:
     stem = path.stem
     for pattern, mode, has_season in (
@@ -306,6 +355,23 @@ def _group_item_payload(
     }
 
 
+def _default_single_item_episode_numbers(groups: List[Dict]) -> None:
+    for group in groups:
+        items = group.get("items") or []
+        if (
+            len(items) != 1
+            or items[0].get("episode_number") is not None
+        ):
+            continue
+        items[0]["episode_number"] = 1
+        item_warnings = list(items[0].get("warnings") or [])
+        item_warnings.append("单视频分组未识别集数，默认使用第1集")
+        items[0]["warnings"] = item_warnings
+        group_warnings = list(group.get("warnings") or [])
+        group_warnings.append("单视频分组默认使用第1集")
+        group["warnings"] = group_warnings
+
+
 def _direct_file_groups(files: List[Path]) -> tuple:
     by_season = {}
     unassigned = []
@@ -316,7 +382,7 @@ def _direct_file_groups(files: List[Path]) -> tuple:
         else:
             by_season.setdefault(parsed.season_number, []).append(path)
     if not by_season:
-        return ([{
+        groups = [{
             "group_key": "all",
             "season_name": "全季",
             "season_number": 1,
@@ -326,7 +392,9 @@ def _direct_file_groups(files: List[Path]) -> tuple:
                 _group_item_payload(path)
                 for path in sorted(files, key=_episode_sort_key)
             ],
-        }], [])
+        }]
+        _default_single_item_episode_numbers(groups)
+        return groups, []
 
     groups = []
     warnings = []
@@ -363,6 +431,7 @@ def _direct_file_groups(files: List[Path]) -> tuple:
             ],
         })
         warnings.append("部分文件未识别到季号，已放入未分季")
+    _default_single_item_episode_numbers(groups)
     return groups, warnings
 
 
@@ -446,6 +515,7 @@ def _auto_collection_groups(
             ],
         })
         warnings.append("根目录存在未归入季目录的视频")
+    _default_single_item_episode_numbers(groups)
     return {
         "grouping_mode": "multi_season" if len(groups) > 1 else "single_season",
         "groups": groups,
@@ -456,7 +526,13 @@ def _auto_collection_groups(
 def preview_scan_source(raw_path: str, scan_mode: str = "batch") -> Dict:
     validated = validate_scan_source(raw_path)
     source = validated["source"]
-    files = list(_iter_video_files(source))
+    discovered_files = list(_iter_video_files(source))
+    files = discovered_files
+    duplicate_files: List[Dict] = []
+    if scan_mode == "collection" and source.is_dir():
+        files, duplicate_files = _deduplicate_collection_files(
+            discovered_files
+        )
     if len(files) > config.external_scan_max_files():
         raise ExternalScanError(
             "视频数量超过单次扫描上限 {} 个，请拆分目录".format(
@@ -481,14 +557,24 @@ def preview_scan_source(raw_path: str, scan_mode: str = "batch") -> Dict:
         "source_path": str(source),
         "source_type": "file" if source.is_file() else "directory",
         "file_count": len(files),
+        "physical_file_count": len(discovered_files),
+        "duplicate_file_count": len(duplicate_files),
+        "duplicate_files": duplicate_files[:20],
         "total_bytes": sum(path.stat().st_size for path in files),
         "samples": samples,
         "volume": validated["volume"],
     }
     if scan_mode == "collection" and source.is_dir():
+        groups = _auto_collection_groups(source, files)
+        if duplicate_files:
+            groups["warnings"].append(
+                "已忽略 {} 个同名且大小相同的重复视频拷贝".format(
+                    len(duplicate_files)
+                )
+            )
         result.update({
             "suggested_series_name": source.name,
-            **_auto_collection_groups(source, files),
+            **groups,
         })
     return result
 
@@ -1076,7 +1162,13 @@ def create_scan(
         )
     if source.is_dir() and scan_mode == "file":
         scan_mode = "batch"
-    files = list(_iter_video_files(source))
+    discovered_files = list(_iter_video_files(source))
+    files = discovered_files
+    duplicate_files: List[Dict] = []
+    if scan_mode == "collection" and source.is_dir():
+        files, duplicate_files = _deduplicate_collection_files(
+            discovered_files
+        )
     if not files:
         raise ExternalScanError(
             "没有发现受支持的视频文件",
@@ -1251,7 +1343,11 @@ def create_scan(
                 ),
             )
         connection.commit()
-    return get_scan(scan_id) or {}
+    scan = get_scan(scan_id) or {}
+    scan["physical_file_count"] = len(discovered_files)
+    scan["duplicate_file_count"] = len(duplicate_files)
+    scan["duplicate_files"] = duplicate_files[:20]
+    return scan
 
 
 def get_scan(scan_id: str) -> Optional[Dict]:

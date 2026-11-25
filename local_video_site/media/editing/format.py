@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import select
 import shutil
 import signal
@@ -12,6 +13,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -21,6 +23,12 @@ from local_video_site import database
 from local_video_site.media.ffmpeg import ffmpeg_slot
 from local_video_site.jobs.runtime import ACTIVE_STATUSES as JOB_ACTIVE_STATUSES, JobResult, JobRunner, JobStateMachine
 from local_video_site.media.info import probe_video
+from local_video_site.media.subtitles import (
+    SubtitleExtractionError,
+    clear_subtitle_assets,
+    extract_subtitle_assets,
+    subtitle_stream_options,
+)
 from local_video_site.media.playback.engine import mp4_is_fragmented, normalize_codec
 from local_video_site.ingestion.library_scan import ScanAlreadyRunning, acquire_library_write_lock, release_library_write_lock
 from local_video_site.core.search import parse_search_query
@@ -51,6 +59,7 @@ STAGE_LABELS = {
     "transcoding": "编码转译 MP4",
     "finalizing": "写入 MP4 索引",
     "verifying": "校验输出文件",
+    "extracting_subtitles": "提取字幕资产",
     "committing": "更新视频数据",
     "backing_up": "保留安全备份",
     "deleting_source": "清理原 MKV",
@@ -65,6 +74,7 @@ OPERATIONS = {
     OPERATION_CONTAINER_REMUX,
     OPERATION_STANDARD_TRANSCODE,
 }
+SUBTITLE_MODES = {"auto", "manual", "none"}
 OPERATION_LABELS = {
     OPERATION_CONTAINER_REMUX: "容器封装 · 无损",
     OPERATION_STANDARD_TRANSCODE: "编码转译 · 有损",
@@ -102,6 +112,9 @@ _EXPECTED_CONTAINERS = {
     ".rm": "realmedia",
     ".rmvb": "realmedia",
 }
+_FFMPEG_FILTER_RE = re.compile(
+    r"^\s*[.A-Z|]{2}\s+([A-Za-z0-9_]+)\s+"
+)
 
 
 class VideoFormatError(RuntimeError):
@@ -220,8 +233,8 @@ def standardization_preview(video: Dict) -> Dict:
         and container != expected_container
     )
     lossy = not (
-        video_codec == "h264"
-        and audio_codec in {"", "aac"}
+        video_codec in REMUX_VIDEO_CODECS
+        and audio_codec in REMUX_AUDIO_CODECS
         and not requires_transcode_from_info(info)
     )
     strategy = "transcode" if lossy else "remux"
@@ -273,8 +286,12 @@ def standardization_preview(video: Dict) -> Dict:
         },
         "target": {
             "container": "mp4",
-            "video_codec": "h264",
-            "audio_codec": "aac" if audio_codec else "",
+            "video_codec": "h264" if lossy else video_codec,
+            "audio_codec": (
+                "aac"
+                if lossy and audio_codec
+                else audio_codec if not lossy else ""
+            ),
         },
         "active_job": dict(active) if active else None,
     })
@@ -296,12 +313,100 @@ def requires_transcode_from_info(info: Dict) -> bool:
     )
 
 
+def format_options(video: Dict) -> Dict:
+    preview = standardization_preview(video)
+    source = Path(str(preview.get("source_path") or ""))
+    subtitle_options = {
+        "streams": [],
+        "recommended_stream_indexes": [],
+        "default_stream_index": None,
+    }
+    if source.is_file():
+        subtitle_options = subtitle_stream_options(source)
+    return {
+        **preview,
+        "subtitle_options": subtitle_options,
+        "subtitle_modes": ["auto", "manual", "none"],
+    }
+
+
+def resolve_subtitle_selection(
+    source: Path,
+    mode: str,
+    selected_stream_indexes: Optional[List[int]] = None,
+    default_stream_index: Optional[int] = None,
+) -> Dict:
+    mode = str(mode or "auto").strip().lower()
+    if mode not in SUBTITLE_MODES:
+        raise VideoFormatError("字幕处理方式无效", "invalid_subtitle_mode")
+    if mode == "none":
+        return {
+            "subtitle_mode": mode,
+            "subtitle_stream_indexes": [],
+            "default_subtitle_stream_index": None,
+        }
+    options = subtitle_stream_options(source)
+    supported = {
+        int(item["source_index"])
+        for item in options["streams"]
+        if item["extractable"]
+    }
+    if mode == "auto":
+        selected = [
+            int(value)
+            for value in options["recommended_stream_indexes"]
+            if int(value) in supported
+        ]
+        default_index = options.get("default_stream_index")
+    else:
+        selected = sorted({
+            int(value)
+            for value in (selected_stream_indexes or [])
+            if int(value) in supported
+        })
+        requested = [
+            int(value)
+            for value in (selected_stream_indexes or [])
+        ]
+        if not requested:
+            raise VideoFormatError(
+                "请选择至少一条可转换的文本字幕",
+                "subtitle_track_required",
+            )
+        if len(selected) != len(set(requested)):
+            raise VideoFormatError(
+                "所选字幕包含图片字幕或不支持的格式",
+                "subtitle_track_not_convertible",
+            )
+        default_index = (
+            int(default_stream_index)
+            if default_stream_index is not None
+            else None
+        )
+    if selected and default_index not in selected:
+        default_index = (
+            int(options.get("default_stream_index"))
+            if options.get("default_stream_index") in selected
+            else selected[0]
+        )
+    if not selected:
+        default_index = None
+    return {
+        "subtitle_mode": mode,
+        "subtitle_stream_indexes": selected,
+        "default_subtitle_stream_index": default_index,
+    }
+
+
 def create_standardization_job(
     video_id: int,
     confirmed: bool = False,
     confirm_lossy: bool = False,
     expected_path: str = "",
     expected_mtime_ns: Optional[int] = None,
+    subtitle_mode: str = "auto",
+    subtitle_stream_indexes: Optional[List[int]] = None,
+    default_subtitle_stream_index: Optional[int] = None,
     created_by_user_id: Optional[int] = None,
     created_by_username: str = "",
 ) -> Dict:
@@ -359,6 +464,9 @@ def create_standardization_job(
         operation=operation,
         confirmed=True,
         confirm_lossy=bool(confirm_lossy),
+        subtitle_mode=subtitle_mode,
+        subtitle_stream_indexes=subtitle_stream_indexes,
+        default_subtitle_stream_index=default_subtitle_stream_index,
         created_by_user_id=created_by_user_id,
         created_by_username=created_by_username,
     )
@@ -478,6 +586,7 @@ def _prepare_job(
     confirmed_at: str,
     source_scan_id: str = "",
     source_scan_item_id: Optional[int] = None,
+    subtitle_selection: Optional[Dict] = None,
     created_by_user_id: Optional[int] = None,
     created_by_username: str = "",
 ) -> Optional[Dict]:
@@ -499,6 +608,11 @@ def _prepare_job(
     video_codec = _codec(video.get("video_codec"))
     audio_codec = _codec(video.get("audio_codec"))
     lossy = operation == OPERATION_STANDARD_TRANSCODE
+    subtitle_selection = subtitle_selection or {
+        "subtitle_mode": "auto",
+        "subtitle_stream_indexes": [],
+        "default_subtitle_stream_index": None,
+    }
     target_video_codec = "h264" if lossy else (video_codec or None)
     target_audio_codec = "aac" if lossy else (audio_codec or None)
     now = _now()
@@ -527,6 +641,14 @@ def _prepare_job(
             },
             ensure_ascii=False,
             separators=(",", ":"),
+        ),
+        "subtitle_mode": subtitle_selection["subtitle_mode"],
+        "subtitle_streams_json": json.dumps(
+            subtitle_selection["subtitle_stream_indexes"],
+            separators=(",", ":"),
+        ),
+        "default_subtitle_stream_index": (
+            subtitle_selection["default_subtitle_stream_index"]
         ),
         "confirmation_version": 1,
         "confirmed_at": confirmed_at,
@@ -575,6 +697,9 @@ def create_jobs(
     batch_id: str = "",
     source_scan_id: str = "",
     scan_item_ids: Optional[Dict[int, int]] = None,
+    subtitle_mode: str = "auto",
+    subtitle_stream_indexes: Optional[List[int]] = None,
+    default_subtitle_stream_index: Optional[int] = None,
     created_by_user_id: Optional[int] = None,
     created_by_username: str = "",
 ) -> Dict:
@@ -639,6 +764,12 @@ def create_jobs(
             confirmed_at=_now(),
             source_scan_id=source_scan_id,
             source_scan_item_id=(scan_item_ids or {}).get(video_id),
+            subtitle_selection=resolve_subtitle_selection(
+                Path(str(video.get("path") or "")),
+                subtitle_mode,
+                subtitle_stream_indexes,
+                default_subtitle_stream_index,
+            ),
             created_by_user_id=created_by_user_id,
             created_by_username=created_by_username,
         )
@@ -667,6 +798,8 @@ def create_jobs(
                         profile_key, lossy, target_container,
                         target_video_codec, target_audio_codec,
                         target_width, target_height, encoding_profile_json,
+                        subtitle_mode, subtitle_streams_json,
+                        default_subtitle_stream_index,
                         confirmation_version, confirmed_at,
                         source_storage_kind, source_volume_id, source_root,
                         source_relative_path, source_path, source_extension,
@@ -685,7 +818,10 @@ def create_jobs(
                         :profile_key, :lossy, :target_container,
                         :target_video_codec, :target_audio_codec,
                         :target_width, :target_height,
-                        :encoding_profile_json, :confirmation_version,
+                        :encoding_profile_json, :subtitle_mode,
+                        :subtitle_streams_json,
+                        :default_subtitle_stream_index,
+                        :confirmation_version,
                         :confirmed_at,
                         :source_storage_kind, :source_volume_id, :source_root,
                         :source_relative_path, :source_path, :source_extension,
@@ -1537,19 +1673,9 @@ def _format_command(
         "0",
     ]
     if operation == OPERATION_STANDARD_TRANSCODE:
-        transfer = str(source_info.get("color_transfer") or "").lower()
-        primaries = str(source_info.get("color_primaries") or "").lower()
-        is_hdr = (
-            transfer in {"smpte2084", "arib-std-b67"}
-            or primaries == "bt2020"
-        )
-        video_filter = (
-            "zscale=t=linear:npl=100,format=gbrpf32le,"
-            "zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
-            "zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
-            if is_hdr
-            else "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,"
-                 "format=yuv420p"
+        video_filter = _video_filter_for_capabilities(
+            source_info,
+            _available_ffmpeg_filters(ffmpeg),
         )
         command.extend([
             "-vf",
@@ -1587,6 +1713,81 @@ def _format_command(
         str(destination),
     ])
     return command
+
+
+def _resolve_ffmpeg() -> Optional[str]:
+    override = config.ffmpeg_path().strip()
+    if override:
+        path = Path(override).expanduser()
+        return (
+            str(path)
+            if path.is_file() and os.access(path, os.X_OK)
+            else None
+        )
+    full_ffmpeg = shutil.which("ffmpeg-full")
+    if full_ffmpeg:
+        return full_ffmpeg
+    for candidate in (
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "/usr/local/opt/ffmpeg-full/bin/ffmpeg",
+    ):
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return shutil.which("ffmpeg")
+
+
+@lru_cache(maxsize=8)
+def _available_ffmpeg_filters(ffmpeg: str) -> frozenset:
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-hide_banner", "-filters"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if completed.returncode != 0:
+        return frozenset()
+    names = set()
+    for line in completed.stdout.splitlines():
+        match = _FFMPEG_FILTER_RE.match(line)
+        if match:
+            names.add(match.group(1))
+    return frozenset(names)
+
+
+def _video_filter_for_capabilities(
+    source_info: Dict,
+    available_filters,
+) -> str:
+    transfer = str(source_info.get("color_transfer") or "").lower()
+    primaries = str(source_info.get("color_primaries") or "").lower()
+    is_hdr = (
+        transfer in {"smpte2084", "arib-std-b67"}
+        or primaries == "bt2020"
+    )
+    if not is_hdr:
+        return (
+            "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,"
+            "format=yuv420p"
+        )
+    filters = set(available_filters)
+    if {"zscale", "tonemap"}.issubset(filters):
+        return (
+            "zscale=t=linear:npl=100,format=gbrpf32le,"
+            "zscale=p=bt709,tonemap=tonemap=hable:desat=0,"
+            "zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+        )
+    raise VideoFormatError(
+        "当前 FFmpeg 缺少 HDR 色调映射滤镜 zscale。"
+        "请安装包含 zimg 的 FFmpeg，例如 "
+        "`brew install ffmpeg-full`，并通过 LOCAL_VIDEO_FFMPEG "
+        "指定其可执行文件后重试。",
+        "ffmpeg_hdr_filter_missing",
+    )
 
 
 def _parse_progress_seconds(line: str) -> Optional[float]:
@@ -1898,7 +2099,7 @@ def process_job(
                 "磁盘可用空间不足，需要 {} 字节".format(required),
                 "disk_space_low",
             )
-        ffmpeg = shutil.which("ffmpeg")
+        ffmpeg = _resolve_ffmpeg()
         if not ffmpeg:
             raise VideoFormatError("ffmpeg is not installed", "ffmpeg_missing")
         temporary = target.with_name(
@@ -1953,6 +2154,46 @@ def process_job(
             temporary,
             operation,
         )
+        update_job(
+            job["id"],
+            stage="extracting_subtitles",
+            progress_percent=88,
+        )
+        subtitle_mode = str(job.get("subtitle_mode") or "auto")
+        if subtitle_mode == "none":
+            clear_subtitle_assets(int(job["video_id"]))
+            subtitle_result = {
+                "assets": [],
+                "errors": [],
+                "source_streams": 0,
+            }
+        else:
+            try:
+                selected_streams = json.loads(
+                    job.get("subtitle_streams_json") or "[]"
+                )
+            except (TypeError, ValueError):
+                selected_streams = []
+            try:
+                subtitle_result = extract_subtitle_assets(
+                    int(job["video_id"]),
+                    source,
+                    logger=logger,
+                    selected_stream_indexes=(
+                        [int(value) for value in selected_streams]
+                        if selected_streams
+                        else None
+                    ),
+                    default_stream_index=job.get(
+                        "default_subtitle_stream_index"
+                    ),
+                    replace_existing=True,
+                )
+            except SubtitleExtractionError as exc:
+                raise VideoFormatError(
+                    "字幕提取失败，已保留原视频: {}".format(exc),
+                    "subtitle_extract_failed",
+                ) from exc
         output_stat = temporary.stat()
         current_video = database.get_video_admin(int(job["video_id"]))
         if (
@@ -1982,6 +2223,15 @@ def process_job(
             output_duration=output_info.get("duration"),
             output_video_codec=_codec(output_info.get("video_codec")) or None,
             output_audio_codec=_codec(output_info.get("audio_codec")) or None,
+            result_json=json.dumps(
+                {
+                    "subtitle_assets": len(
+                        subtitle_result.get("assets") or []
+                    ),
+                    "subtitle_errors": subtitle_result.get("errors") or [],
+                },
+                ensure_ascii=False,
+            ),
         )
         backup_fields = {}
         backup = _backup_path_for(job)

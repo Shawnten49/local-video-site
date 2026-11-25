@@ -8,6 +8,7 @@ import com.shawn.localvideotv.data.ServerSettings
 import com.shawn.localvideotv.data.TvRepository
 import com.shawn.localvideotv.data.VideoCard
 import com.shawn.localvideotv.data.VideoDetail
+import com.shawn.localvideotv.player.ExternalPlaybackTarget
 import java.io.IOException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,8 +29,18 @@ data class PlayerUiState(
     val episodeNumber: Int? = null,
     val episodeTitle: String? = null,
     val streamUrl: String? = null,
+    val subtitleTracks: List<PlayerSubtitleUi> = emptyList(),
     val nextEpisode: NextEpisodeUi? = null,
     val error: String? = null,
+)
+
+data class PlayerSubtitleUi(
+    val id: Int,
+    val url: String,
+    val language: String,
+    val label: String,
+    val mimeType: String,
+    val isDefault: Boolean,
 )
 
 data class NextEpisodeUi(
@@ -49,6 +60,7 @@ data class TvUiState(
     val loadingMore: Boolean = false,
     val libraryError: String? = null,
     val detail: VideoDetail? = null,
+    val selectedVideoId: Int? = null,
     val detailLoading: Boolean = false,
     val detailError: String? = null,
 )
@@ -71,6 +83,45 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun assetUrl(path: String?): String? = repository.absoluteUrl(path)
+
+    suspend fun playbackDetail(videoId: Int): Result<VideoDetail> =
+        runCatching { repository.api.videoDetail(videoId) }
+
+    fun selectVideo(videoId: Int) {
+        _state.update { it.copy(selectedVideoId = videoId) }
+    }
+
+    suspend fun originalPlayback(
+        videoId: Int,
+        fallbackMimeType: String = "video/x-matroska",
+        fallbackTitle: String = "",
+    ): Result<ExternalPlaybackTarget> =
+        runCatching {
+            val info = try {
+                repository.api.originalPlayback(videoId)
+            } catch (error: HttpException) {
+                if (error.code() !in setOf(404, 405)) throw error
+                null
+            }
+            if (info != null) {
+                check(info.available) { "原始视频当前不可用" }
+                val url = repository.absoluteUrl(info.streamUrl)
+                    ?: error("服务器没有返回原始视频地址")
+                ExternalPlaybackTarget(
+                    url = url,
+                    mimeType = info.mimeType,
+                    title = info.title,
+                )
+            } else {
+                val url = repository.absoluteUrl("/media/{}".format(videoId))
+                    ?: error("服务器地址无效")
+                ExternalPlaybackTarget(
+                    url = url,
+                    mimeType = fallbackMimeType,
+                    title = fallbackTitle,
+                )
+            }
+        }
 
     fun refreshLibrary() {
         _state.update {
@@ -143,6 +194,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 screen = AppScreen.Detail(videoId),
                 detail = null,
+                selectedVideoId = videoId,
                 detailLoading = true,
                 detailError = null,
             )
@@ -153,6 +205,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     _state.update {
                         it.copy(
                             detail = detail,
+                            selectedVideoId = detail.id,
                             detailLoading = false,
                             detailError = null,
                         )
@@ -178,6 +231,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 screen = AppScreen.Library,
                 detail = null,
+                selectedVideoId = null,
                 detailError = null,
             )
         }

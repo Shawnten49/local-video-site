@@ -73,6 +73,9 @@
   const formatWarning = document.getElementById("format-mp4-warning");
   const formatError = document.getElementById("format-mp4-error");
   const formatConfirm = document.getElementById("confirm-format-mp4");
+  const formatSubtitleList = document.getElementById(
+    "format-mp4-subtitle-list",
+  );
   const formatRemuxRadio = formatForm?.querySelector(
     'input[value="container_remux"]',
   );
@@ -83,6 +86,7 @@
   let trimmingVideo = null;
   let trimOptions = null;
   let trimPollTimer = null;
+  let formatOptions = null;
   const shownKeys = new Set();
 
   function label(key) {
@@ -606,8 +610,98 @@
     }
   }
 
-  function openFormatDialog(button) {
+  function selectedSubtitleMode() {
+    return formatForm?.querySelector(
+      'input[name="format-subtitle-mode"]:checked',
+    )?.value || "auto";
+  }
+
+  function renderSubtitleOptions(options) {
+    if (!formatSubtitleList) return;
+    formatSubtitleList.replaceChildren();
+    const streams = options?.streams || [];
+    if (!streams.length) {
+      const empty = document.createElement("p");
+      empty.textContent = "未发现字幕流；转换后不提供外挂字幕。";
+      formatSubtitleList.appendChild(empty);
+      return;
+    }
+    streams.forEach((stream) => {
+      const row = document.createElement("label");
+      row.className = "format-subtitle-row";
+      if (!stream.extractable) row.classList.add("is-disabled");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.name = "format-subtitle-track";
+      checkbox.value = String(stream.source_index);
+      checkbox.checked = Boolean(
+        stream.recommended_default
+        || stream.recommended,
+      );
+      checkbox.disabled = !stream.extractable;
+      const defaultRadio = document.createElement("input");
+      defaultRadio.type = "radio";
+      defaultRadio.name = "format-subtitle-default";
+      defaultRadio.value = String(stream.source_index);
+      defaultRadio.checked = Boolean(stream.recommended_default);
+      defaultRadio.disabled = !stream.extractable;
+      const summary = document.createElement("span");
+      const title = document.createElement("strong");
+      title.textContent = stream.title || `字幕 ${stream.ordinal}`;
+      const detail = document.createElement("small");
+      detail.textContent = (
+        `#${stream.ordinal} · ${stream.language || "未知语言"} · `
+        + `${String(stream.codec || "unknown").toUpperCase()}`
+        + (stream.extractable ? "" : " · 图片字幕不能转换为 VTT")
+      );
+      summary.append(title, detail);
+      const defaultLabel = document.createElement("em");
+      defaultLabel.textContent = "默认";
+      defaultLabel.append(defaultRadio);
+      row.append(checkbox, summary, defaultLabel);
+      formatSubtitleList.appendChild(row);
+    });
+    updateSubtitleMode();
+  }
+
+  function updateSubtitleMode() {
+    const mode = selectedSubtitleMode();
+    formatSubtitleList?.querySelectorAll(
+      'input[name="format-subtitle-track"]',
+    ).forEach((input) => {
+      const stream = formatOptions?.subtitle_options?.streams?.find(
+        (item) => String(item.source_index) === input.value,
+      );
+      input.disabled = mode !== "manual" || !stream?.extractable;
+      if (mode === "auto") {
+        input.checked = Boolean(stream?.recommended);
+      } else if (mode === "none") {
+        input.checked = false;
+      }
+    });
+    formatSubtitleList?.querySelectorAll(
+      'input[name="format-subtitle-default"]',
+    ).forEach((input) => {
+      const stream = formatOptions?.subtitle_options?.streams?.find(
+        (item) => String(item.source_index) === input.value,
+      );
+      const selected = formatSubtitleList.querySelector(
+        `input[name="format-subtitle-track"][value="${input.value}"]`,
+      )?.checked;
+      input.disabled = (
+        mode !== "manual"
+        || !stream?.extractable
+        || !selected
+      );
+      if (mode === "auto") {
+        input.checked = Boolean(stream?.recommended_default);
+      }
+    });
+  }
+
+  async function openFormatDialog(button) {
     formattingVideoId = Number(button.dataset.formatMp4);
+    formatOptions = null;
     const remuxSupported =
       button.dataset.formatRemuxSupported === "1";
     if (formatTitle) formatTitle.textContent =
@@ -616,6 +710,9 @@
     if (formatCodecs) formatCodecs.textContent =
       button.dataset.formatCodecs || "";
     if (formatError) formatError.textContent = "";
+    if (formatSubtitleList) {
+      formatSubtitleList.textContent = "正在读取字幕流…";
+    }
     formatForm?.querySelectorAll(
       'input[name="format-operation"]',
     ).forEach((input) => {
@@ -634,9 +731,30 @@
         ? "编码转译会重新编码视频和音频，画质和音质可能发生变化，处理时间较长。"
         : "RMVB 不能进行无损容器封装，必须选择编码转译为 H.264/AAC。";
     }
-    if (formatConfirm) formatConfirm.disabled = false;
+    if (formatConfirm) formatConfirm.disabled = true;
     formatDialog?.showModal();
     updateFormatMethod();
+    try {
+      const response = await fetch(
+        `/api/manage/videos/${formattingVideoId}/format-options`,
+        { cache: "no-store" },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          payload.detail?.message || payload.detail
+            || `HTTP ${response.status}`,
+        );
+      }
+      formatOptions = payload;
+      renderSubtitleOptions(payload.subtitle_options);
+      if (formatConfirm) formatConfirm.disabled = false;
+    } catch (error) {
+      if (formatError) formatError.textContent = error.message || String(error);
+      if (formatSubtitleList) {
+        formatSubtitleList.textContent = "字幕流读取失败";
+      }
+    }
   }
 
   formatForm?.querySelectorAll(
@@ -644,11 +762,50 @@
   ).forEach((input) => {
     input.addEventListener("change", updateFormatMethod);
   });
+  formatForm?.querySelectorAll(
+    'input[name="format-subtitle-mode"]',
+  ).forEach((input) => {
+    input.addEventListener("change", updateSubtitleMode);
+  });
+  formatSubtitleList?.addEventListener("change", (event) => {
+    if (!event.target.matches('input[name="format-subtitle-track"]')) return;
+    const row = event.target.closest(".format-subtitle-row");
+    const defaultRadio = row?.querySelector(
+      'input[name="format-subtitle-default"]',
+    );
+    if (defaultRadio) {
+      defaultRadio.disabled = (
+        selectedSubtitleMode() !== "manual"
+        || !event.target.checked
+      );
+      if (!event.target.checked && defaultRadio.checked) {
+        defaultRadio.checked = false;
+      }
+      if (
+        event.target.checked
+        && !formatForm.querySelector(
+          'input[name="format-subtitle-default"]:checked',
+        )
+      ) {
+        defaultRadio.checked = true;
+      }
+    }
+  });
 
   formatForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (!formattingVideoId) return;
     const operation = selectedFormatOperation();
+    const subtitleMode = selectedSubtitleMode();
+    const selectedSubtitleIndexes = Array.from(
+      formatForm.querySelectorAll(
+        'input[name="format-subtitle-track"]:checked',
+      ),
+      (input) => Number(input.value),
+    );
+    const defaultSubtitle = formatForm.querySelector(
+      'input[name="format-subtitle-default"]:checked',
+    );
     formatConfirm.disabled = true;
     formatConfirm.textContent = "正在创建任务…";
     if (formatError) formatError.textContent = "";
@@ -663,6 +820,13 @@
             confirmed: true,
             confirm_lossy: operation === "standard_transcode",
             confirmation_version: 1,
+            subtitle_mode: subtitleMode,
+            subtitle_stream_indexes: subtitleMode === "manual"
+              ? selectedSubtitleIndexes
+              : [],
+            default_subtitle_stream_index: subtitleMode === "manual"
+              ? Number(defaultSubtitle?.value) || null
+              : null,
           }),
         },
       );

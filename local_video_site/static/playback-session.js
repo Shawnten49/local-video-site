@@ -60,6 +60,9 @@ export class PlaybackSession {
     );
     const player = document.createElement(MOVI_TAG);
     transferAttributes(this.nativeElement, player);
+    for (const track of this.nativeElement.querySelectorAll("track")) {
+      player.appendChild(track.cloneNode(true));
+    }
     player.setAttribute("controls", "");
     player.setAttribute("playsinline", "");
     player.setAttribute("nohotkeys", "");

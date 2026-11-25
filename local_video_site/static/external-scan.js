@@ -449,13 +449,19 @@
   }
 
   function updateSubmitState() {
-    let valid = previewReady;
+    if (!previewReady) {
+      submit.disabled = true;
+      submit.title = "请先选择包含受支持视频的文件或目录";
+      return;
+    }
+    let valid;
     if (mode.value === "collection") {
-      valid = valid && validateGroups(false);
+      valid = validateGroups(true);
     } else {
-      valid = valid && validateTargetSeason(false);
+      valid = validateTargetSeason(true);
     }
     submit.disabled = !valid;
+    submit.title = valid ? "" : "请先修正上方显示的扫描配置问题";
   }
 
   function refreshMoveOptions() {
@@ -761,12 +767,19 @@
 
   function renderSummary(payload) {
     previewSummary.replaceChildren();
-    for (const [label, value] of [
+    const summaryRows = [
       ["来源类型", payload.source_type === "file" ? "单个视频" : "文件夹"],
       ["视频数量", `${payload.file_count} 个`],
       ["总大小", formatBytes(payload.total_bytes)],
       ["外盘", payload.volume?.label || "已识别"],
-    ]) {
+    ];
+    if (Number(payload.duplicate_file_count || 0) > 0) {
+      summaryRows.push([
+        "重复拷贝",
+        `已忽略 ${payload.duplicate_file_count} 个`,
+      ]);
+    }
+    for (const [label, value] of summaryRows) {
       const row = document.createElement("div");
       const term = document.createElement("span");
       const description = document.createElement("strong");
