@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +44,7 @@ fun TvApp(
     val leaveSettings = {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        viewModel.backToLibrary()
+        viewModel.backFromSettings()
     }
     val openExternalPlayer: (Int) -> Unit = { videoId ->
         coroutineScope.launch {
@@ -93,30 +94,81 @@ fun TvApp(
 
     BackHandler(
         enabled = state.screen is AppScreen.Detail ||
-            state.screen is AppScreen.Settings
+            state.screen is AppScreen.Settings ||
+            state.screen is AppScreen.Category ||
+            state.screen is AppScreen.Series
     ) {
-        when (state.screen) {
-            is AppScreen.Detail -> viewModel.backToLibrary()
-            is AppScreen.Settings -> leaveSettings()
-            is AppScreen.Library -> Unit
+        if (isTelevision) {
+            viewModel.navigateBack()
+        } else {
+            when (state.screen) {
+                is AppScreen.Detail -> viewModel.backToLibrary()
+                is AppScreen.Settings -> leaveSettings()
+                else -> Unit
+            }
+        }
+    }
+
+    LaunchedEffect(isTelevision) {
+        if (isTelevision && state.tvCategories.isEmpty()) {
+            viewModel.refreshTvHome()
         }
     }
 
     CompositionLocalProvider(LocalTvUi provides isTelevision) {
         when (val screen = state.screen) {
-            is AppScreen.Library -> LibraryScreen(
-                cards = state.cards,
-                total = state.total,
-                loading = state.libraryLoading,
-                loadingMore = state.loadingMore,
-                error = state.libraryError,
-                gridState = gridState,
+            is AppScreen.Library -> {
+                if (isTelevision) {
+                    TvHomeScreen(
+                        categories = state.tvCategories,
+                        loading = state.tvHomeLoading,
+                        error = state.tvHomeError,
+                        onOpenCategory = { category ->
+                            viewModel.openTvCategory(
+                                category.key,
+                                category.title,
+                            )
+                        },
+                        onRetry = viewModel::refreshTvHome,
+                        onSettings = viewModel::openSettings,
+                    )
+                } else {
+                    LibraryScreen(
+                        cards = state.cards,
+                        total = state.total,
+                        loading = state.libraryLoading,
+                        loadingMore = state.loadingMore,
+                        error = state.libraryError,
+                        gridState = gridState,
+                        assetUrl = viewModel::assetUrl,
+                        onOpenDetail = viewModel::openDetail,
+                        onLoadMore = viewModel::loadMore,
+                        onRetry = viewModel::refreshLibrary,
+                        onSettings = viewModel::openSettings,
+                        requestInitialFocus = isTelevision,
+                    )
+                }
+            }
+            is AppScreen.Category -> TvSeriesCategoryScreen(
+                series = state.tvSeries,
+                loading = state.tvSeriesLoading,
+                loadingMore = state.tvSeriesLoadingMore,
+                error = state.tvSeriesError,
                 assetUrl = viewModel::assetUrl,
-                onOpenDetail = viewModel::openDetail,
-                onLoadMore = viewModel::loadMore,
-                onRetry = viewModel::refreshLibrary,
-                onSettings = viewModel::openSettings,
-                requestInitialFocus = isTelevision,
+                onOpenSeries = viewModel::openTvSeries,
+                onLoadMore = viewModel::loadMoreTvSeries,
+                onRetry = viewModel::retryTvCategory,
+            )
+            is AppScreen.Series -> TvSeriesSeasonsScreen(
+                series = state.tvSeriesDetail,
+                loading = state.tvSeriesDetailLoading,
+                error = state.tvSeriesDetailError,
+                assetUrl = viewModel::assetUrl,
+                selectedVideoId = state.selectedVideoId,
+                onOpenSeason = { season ->
+                    viewModel.openTvDetail(season.entryVideoId)
+                },
+                onRetry = viewModel::retryTvSeriesDetail,
             )
             is AppScreen.Detail -> DetailScreen(
                 detail = state.detail,
@@ -138,10 +190,36 @@ fun TvApp(
                                         ".mkv",
                                         ignoreCase = true,
                                     )
-                                    || selected.playback.playbackMode ==
-                                    "external_vlc"
+                                    && selected.playback.state !in setOf(
+                                        "external_offline",
+                                        "file_missing",
+                                        "deleted",
+                                        "not_found",
+                                    )
                                 )
-                                if (useExternal) {
+                                val unavailable = (
+                                    selected.playback.state in setOf(
+                                        "external_offline",
+                                        "file_missing",
+                                        "deleted",
+                                        "not_found",
+                                    )
+                                    || (
+                                        !selected.playback.playable
+                                        && !useExternal
+                                    )
+                                )
+                                if (unavailable) {
+                                    externalPlayerDialog =
+                                        ExternalPlayerDialogState(
+                                            title = selected.playback.title
+                                                .ifBlank { "当前视频无法播放" },
+                                            message = selected.playback.message
+                                                .ifBlank {
+                                                    "视频当前不可用，请检查存储状态"
+                                                },
+                                        )
+                                } else if (useExternal) {
                                     openExternalPlayer(videoId)
                                 } else {
                                     context.startActivity(
@@ -170,7 +248,13 @@ fun TvApp(
                 },
                 onRetry = { viewModel.openDetail(screen.videoId) },
                 onSettings = viewModel::openSettings,
-                onBack = viewModel::backToLibrary,
+                onBack = {
+                    if (isTelevision) {
+                        viewModel.navigateBack()
+                    } else {
+                        viewModel.backToLibrary()
+                    }
+                },
             )
             is AppScreen.Settings -> SettingsScreen(
                 serverUrl = state.serverUrl,

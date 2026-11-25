@@ -71,7 +71,25 @@ class ManualCategoryTests(unittest.TestCase):
             "/api/manual-categories/{}".format(created.json()["id"])
         )
         self.assertEqual(deleted.status_code, 200)
-        self.assertEqual(database.list_manual_categories(), [])
+        self.assertEqual(
+            [
+                item
+                for item in database.list_manual_categories()
+                if not item["is_system"]
+            ],
+            [],
+        )
+
+    def test_tv_system_categories_cannot_be_deleted(self):
+        category = next(
+            item
+            for item in database.list_manual_categories()
+            if item["system_key"] == "tv"
+        )
+        response = admin_client().delete(
+            "/api/manual-categories/{}".format(category["id"])
+        )
+        self.assertEqual(response.status_code, 409)
 
     def test_soft_deleting_video_preserves_manual_category_relation(self):
         video = self._add_video("one.mp4", "One")

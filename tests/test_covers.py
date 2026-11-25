@@ -24,6 +24,11 @@ class CoverTests(unittest.TestCase):
             patch.object(config, "DATABASE_PATH", self.data_dir / "library.db"),
             patch.object(config, "THUMBNAIL_DIR", self.data_dir / "thumbnails"),
             patch.object(config, "COVER_DIR", self.data_dir / "covers"),
+            patch.object(
+                config,
+                "COVER_PREVIEW_DIR",
+                self.data_dir / "cover-previews",
+            ),
             patch.object(config, "LOG_PATH", self.data_dir / "logs" / "server.log"),
             patch.object(config, "SCAN_STATUS_PATH", self.data_dir / "scan.json"),
         )
@@ -107,6 +112,60 @@ class CoverTests(unittest.TestCase):
             422,
         )
 
+    def test_cover_editor_and_server_side_preview(self):
+        client = admin_client()
+        editor = client.get(
+            "/api/videos/{}/cover-editor".format(self.video_id)
+        )
+
+        self.assertEqual(editor.status_code, 200, editor.text)
+        payload = editor.json()
+        self.assertEqual(payload["duration"], 120)
+        self.assertEqual(payload["default_timestamp"], 12)
+        self.assertEqual(payload["preview_step_seconds"], 0.5)
+        self.assertIn("/thumb/{}".format(self.video_id), payload["poster_url"])
+
+        preview = config.COVER_PREVIEW_DIR / "preview.jpg"
+        preview.parent.mkdir(parents=True, exist_ok=True)
+        preview.write_bytes(b"preview-image")
+        with patch(
+            "local_video_site.web.routes.media.generate_cover_preview",
+            return_value=preview,
+        ) as generate:
+            response = client.get(
+                "/api/videos/{}/cover-preview".format(self.video_id),
+                params={"timestamp": 42.6, "v": "test"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.content, b"preview-image")
+        self.assertEqual(response.headers["content-type"], "image/jpeg")
+        self.assertEqual(response.headers["x-cover-timestamp"], "42.5")
+        self.assertEqual(generate.call_args.kwargs["timestamp"], 42.5)
+
+        invalid = client.get(
+            "/api/videos/{}/cover-preview".format(self.video_id),
+            params={"timestamp": -1},
+        )
+        self.assertEqual(invalid.status_code, 422)
+
+    def test_cover_preview_failure_has_structured_message(self):
+        with patch(
+            "local_video_site.web.routes.media.generate_cover_preview",
+            return_value=None,
+        ):
+            response = admin_client().get(
+                "/api/videos/{}/cover-preview".format(self.video_id),
+                params={"timestamp": 10},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json()["detail"]["code"],
+            "cover_preview_failed",
+        )
+        self.assertIn("画面", response.json()["detail"]["message"])
+
     def test_upsert_preserves_custom_cover_until_file_changes(self):
         database.update_custom_cover(
             self.video_id,
@@ -146,9 +205,23 @@ class CoverTests(unittest.TestCase):
             response.text.index('class="change-cover-button"'),
         )
         self.assertIn('id="cover-dialog"', response.text)
-        self.assertIn("/static/cover.js", response.text)
+        self.assertIn('id="cover-preview-image"', response.text)
+        self.assertIn('id="cover-time-slider"', response.text)
+        self.assertNotIn('id="cover-preview-player"', response.text)
+        self.assertIn("/static/cover.js?v=20261125-cover-preview", response.text)
         self.assertIn("使用当前画面", response.text)
         self.assertIn("恢复自动封面", response.text)
+
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "local_video_site"
+            / "static"
+            / "cover.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("/cover-editor", script)
+        self.assertIn("/cover-preview", script)
+        self.assertNotIn("/api/prepare/", script)
+        self.assertIn("detail.message", script)
 
 
 if __name__ == "__main__":

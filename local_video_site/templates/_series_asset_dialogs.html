@@ -1,0 +1,80 @@
+<dialog id="series-category-dialog" class="management-dialog series-asset-dialog">
+  <div class="management-dialog-card">
+    <header class="download-dialog-header">
+      <div>
+        <p class="eyebrow">SERIES CATEGORIES</p>
+        <h2 id="series-category-title">分类管理</h2>
+      </div>
+      <button
+        class="cover-dialog-close"
+        type="button"
+        data-close-series-category
+        aria-label="关闭"
+      >×</button>
+    </header>
+    <label class="series-asset-search">
+      <span>搜索人工标签</span>
+      <input id="series-category-search" type="search" placeholder="输入名称筛选">
+    </label>
+    <div id="series-category-options" class="series-category-options"></div>
+    <p id="series-category-status" class="download-form-error" role="status"></p>
+    <footer class="edit-video-actions">
+      <button class="download-secondary-button" type="button" data-close-series-category>取消</button>
+      <button id="save-series-categories" class="download-primary-button" type="button">保存分类</button>
+    </footer>
+  </div>
+</dialog>
+
+<dialog id="series-cover-dialog" class="management-dialog series-cover-dialog">
+  <div class="management-dialog-card">
+    <header class="download-dialog-header">
+      <div>
+        <p class="eyebrow">SERIES COVER</p>
+        <h2 id="series-cover-title">视频封面</h2>
+      </div>
+      <button
+        class="cover-dialog-close"
+        type="button"
+        data-close-series-cover
+        aria-label="关闭"
+      >×</button>
+    </header>
+    <div class="series-cover-layout">
+      <div class="series-cover-preview">
+        <img id="series-cover-preview" alt="视频集封面预览">
+      </div>
+      <div class="series-cover-controls">
+        <label>
+          <input type="radio" name="series-cover-source" value="auto" checked>
+          自动继承季封面
+        </label>
+        <label>
+          <input type="radio" name="series-cover-source" value="season">
+          使用指定视频季封面
+        </label>
+        <label>
+          <input type="radio" name="series-cover-source" value="video_frame">
+          从剧集画面截取
+        </label>
+        <label id="series-cover-season-field">
+          <span>视频季</span>
+          <select id="series-cover-season"></select>
+        </label>
+        <label id="series-cover-episode-field" hidden>
+          <span>剧集</span>
+          <select id="series-cover-episode"></select>
+        </label>
+        <label id="series-cover-time-field" hidden>
+          <span>画面时间</span>
+          <input id="series-cover-time" type="range" min="0" max="0" step="0.5" value="0">
+          <small id="series-cover-time-label">00:00</small>
+        </label>
+      </div>
+    </div>
+    <p id="series-cover-status" class="download-form-error" role="status"></p>
+    <footer class="edit-video-actions">
+      <button id="restore-series-cover" class="download-secondary-button" type="button">恢复自动封面</button>
+      <button id="save-series-cover" class="download-primary-button" type="button">保存封面</button>
+    </footer>
+  </div>
+</dialog>

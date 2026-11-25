@@ -84,6 +84,9 @@ SEASON_EPISODE_RE = re.compile(
 EPISODE_ONLY_RE = re.compile(
     r"(?i)(?<![A-Z0-9])EP(?:ISODE)?[\s._-]*(\d{1,4})(?!\d)"
 )
+TOP_EPISODE_RE = re.compile(
+    r"(?i)(?<![A-Z0-9])TOP[\s._-]*(\d{1,4})(?!\d)"
+)
 E_ONLY_RE = re.compile(
     r"(?i)(?:^|[\s._-])E(\d{1,4})(?:$|[\s._-])"
 )
@@ -231,6 +234,7 @@ def _parse_episode_file(path: Path) -> EpisodeFileInfo:
             )
     for pattern, mode in (
         (EPISODE_ONLY_RE, "EPxx"),
+        (TOP_EPISODE_RE, "TOPxxx"),
         (E_ONLY_RE, "Exx"),
         (CN_EPISODE_RE, "第N集"),
         (LEADING_CN_INDEX_RE, "前导序号、"),

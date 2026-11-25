@@ -598,6 +598,104 @@ def _ensure_series_delete_columns(
                 "ALTER TABLE {} ADD COLUMN "
                 "display_name_override TEXT".format(table)
             )
+    series_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info('video_series')")
+    }
+    for column, definition in {
+        "cover_path": "TEXT",
+        "cover_source": "TEXT NOT NULL DEFAULT 'auto'",
+        "cover_source_season_id": "INTEGER",
+        "cover_source_video_id": "INTEGER",
+        "cover_timestamp": "REAL",
+        "cover_updated_at": "TEXT",
+    }.items():
+        if column not in series_columns:
+            connection.execute(
+                "ALTER TABLE video_series ADD COLUMN {} {}".format(
+                    column,
+                    definition,
+                )
+            )
+    season_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info('video_seasons')")
+    }
+    for column, definition in {
+        "cover_source": "TEXT NOT NULL DEFAULT 'inherited'",
+        "cover_source_video_id": "INTEGER",
+        "cover_timestamp": "REAL",
+        "cover_updated_at": "TEXT",
+    }.items():
+        if column not in season_columns:
+            connection.execute(
+                "ALTER TABLE video_seasons ADD COLUMN {} {}".format(
+                    column,
+                    definition,
+                )
+            )
+    category_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info('manual_categories')")
+    }
+    for column, definition in {
+        "system_key": "TEXT",
+        "is_system": "INTEGER NOT NULL DEFAULT 0",
+    }.items():
+        if column not in category_columns:
+            connection.execute(
+                "ALTER TABLE manual_categories ADD COLUMN {} {}".format(
+                    column,
+                    definition,
+                )
+            )
+    now = _now()
+    for system_key, name in (
+        ("tv", "电视剧"),
+        ("movie", "电影"),
+        ("anime", "动漫"),
+        ("documentary", "纪录片"),
+        ("other", "其它"),
+    ):
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO manual_categories (
+                name, normalized_name, system_key, is_system,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, 1, ?, ?)
+            """,
+            (name, name.casefold(), system_key, now, now),
+        )
+        connection.execute(
+            """
+            UPDATE manual_categories
+            SET system_key = ?, is_system = 1, updated_at = ?
+            WHERE normalized_name = ?
+            """,
+            (system_key, now, name.casefold()),
+        )
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_manual_categories_system_key "
+        "ON manual_categories(system_key)"
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS video_series_manual_categories (
+            series_id INTEGER NOT NULL,
+            manual_category_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (series_id, manual_category_id)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_video_series_manual_categories_category "
+        "ON video_series_manual_categories(manual_category_id, series_id)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_video_series_manual_categories_series "
+        "ON video_series_manual_categories(series_id, manual_category_id)"
+    )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_video_series_active "
         "ON video_series(is_deleted, updated_at DESC)"

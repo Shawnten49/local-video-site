@@ -86,6 +86,9 @@ _subtitle_default_priority_module = importlib.import_module(
 _format_subtitle_selection_module = importlib.import_module(
     "{}.0010_format_subtitle_selection".format(__package__)
 )
+_tv_categories_module = importlib.import_module(
+    "{}.0011_tv_categories".format(__package__)
+)
 
 MIGRATIONS = (
     _integrity_module.runtime_integrity_migration,
@@ -97,6 +100,7 @@ MIGRATIONS = (
     _subtitle_assets_module.subtitle_assets_migration,
     _subtitle_default_priority_module.subtitle_default_priority_migration,
     _format_subtitle_selection_module.format_subtitle_selection_migration,
+    _tv_categories_module.tv_categories_migration,
 )
 
 

@@ -30,9 +30,56 @@ data class VideoPage(
     @SerializedName("has_next") val hasNext: Boolean,
 )
 
+data class TvHomeResponse(
+    val categories: List<TvCategoryCard>,
+)
+
+data class TvCategoryCard(
+    val key: String,
+    val title: String,
+    val accent: String,
+    @SerializedName("series_count") val seriesCount: Int,
+    @SerializedName("season_count") val seasonCount: Int,
+)
+
+data class TvSeriesPage(
+    @SerializedName("category_key") val categoryKey: String,
+    val items: List<TvSeriesCard>,
+    val page: Int,
+    @SerializedName("page_size") val pageSize: Int,
+    val pages: Int,
+    val total: Int,
+    @SerializedName("has_next") val hasNext: Boolean,
+)
+
+data class TvSeriesCard(
+    @SerializedName("series_id") val seriesId: Int,
+    val title: String,
+    @SerializedName("cover_url") val coverUrl: String,
+    @SerializedName("category_keys") val categoryKeys: List<String> = emptyList(),
+    @SerializedName("season_count") val seasonCount: Int,
+    @SerializedName("available_season_count") val availableSeasonCount: Int,
+    @SerializedName("episode_count") val episodeCount: Int,
+    @SerializedName("available_episode_count") val availableEpisodeCount: Int,
+    @SerializedName("single_season_entry_video_id")
+    val singleSeasonEntryVideoId: Int? = null,
+    val seasons: List<TvSeasonCard> = emptyList(),
+)
+
+data class TvSeasonCard(
+    @SerializedName("season_id") val seasonId: Int,
+    val title: String,
+    @SerializedName("season_number") val seasonNumber: Int,
+    @SerializedName("cover_url") val coverUrl: String,
+    @SerializedName("episode_count") val episodeCount: Int,
+    @SerializedName("available_episode_count") val availableEpisodeCount: Int,
+    @SerializedName("entry_video_id") val entryVideoId: Int,
+)
+
 data class PlaybackInfo(
     @SerializedName("video_id") val videoId: Int,
     val state: String,
+    val title: String = "",
     val playable: Boolean,
     val message: String,
     val retryable: Boolean,
@@ -78,6 +125,8 @@ data class EpisodeInfo(
 
 data class SeriesInfo(
     val id: Int,
+    @SerializedName("series_id") val seriesId: Int? = null,
+    @SerializedName("season_id") val seasonId: Int? = null,
     @SerializedName("series_title") val seriesTitle: String,
     @SerializedName("season_title") val seasonTitle: String,
     val episodes: List<EpisodeInfo>,

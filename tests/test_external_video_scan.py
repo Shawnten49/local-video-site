@@ -404,6 +404,39 @@ class ExternalVideoScanTests(unittest.TestCase):
                 )
                 self.assertTrue(parsed.detection_mode)
 
+    def test_top_prefixed_number_is_parsed_as_episode_number(self):
+        name = (
+            "Top001.肖申克的救赎.The.Shawshank.Redemption.1994."
+            "Bluray.REPACK.1080p.x265.AAC(5.1).5Audios.GREENOTEA.mkv"
+        )
+        parsed = _parse_episode_file(Path(name))
+
+        self.assertIsNone(parsed.season_number)
+        self.assertEqual(parsed.episode_number, 1)
+        self.assertEqual(parsed.detection_mode, "TOPxxx")
+        self.assertEqual(parsed.matched_text, "Top001")
+
+    def test_top_prefixed_episode_numbers_are_sorted_numerically(self):
+        for name in (
+            "Top010.Movie.mkv",
+            "Top002.Movie.mkv",
+            "Top001.Movie.mkv",
+        ):
+            self._video(name)
+
+        discovery = preview_scan_source(
+            str(self.source),
+            scan_mode="collection",
+        )
+
+        self.assertEqual(
+            [
+                item["episode_number"]
+                for item in discovery["groups"][0]["items"]
+            ],
+            [1, 2, 10],
+        )
+
     def test_leading_chinese_index_is_parsed_as_episode_number(self):
         cases = {
             "10、百变狸猫 平成狸合戦ぽんぽこ (1994) .mp4": 10,

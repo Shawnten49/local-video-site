@@ -2064,6 +2064,52 @@ h1 {
 .player-shell video.is-external-only {
   display: none;
 }
+.player-shell video.is-selection-only {
+  display: none;
+}
+.playback-selection-poster {
+  position: relative;
+  display: grid;
+  min-height: 420px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 18px;
+  background: #050608;
+}
+.playback-selection-poster img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: .42;
+}
+.playback-selection-poster div {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  min-height: 420px;
+  padding: 32px;
+  background: radial-gradient(circle, rgba(5,6,8,.25), rgba(5,6,8,.9));
+  text-align: center;
+}
+.playback-selection-poster h2,
+.playback-selection-poster p {
+  margin: 0;
+}
+.playback-selection-poster p {
+  color: var(--muted);
+}
+.playback-decision-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+.playback-decision-message {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
 .mkv-external-player {
   position: relative;
   display: grid;
@@ -2237,6 +2283,10 @@ h1 {
   border-color: rgba(255,79,100,.72);
   background: rgba(255,79,100,.12);
   color: #fff;
+}
+.season-episode-button.is-checking {
+  opacity: .65;
+  pointer-events: none;
 }
 .season-episode-button.is-offline {
   border-style: dashed;
@@ -3884,18 +3934,25 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   color: var(--text);
   font-size: 22px;
 }
-.cover-player-shell {
+.cover-preview-shell {
   position: relative;
+  display: grid;
+  min-height: 280px;
+  max-height: 65vh;
+  overflow: hidden;
+  place-items: center;
   background: black;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
-#cover-preview-player {
+#cover-preview-image {
   display: block;
   width: 100%;
   max-height: 65vh;
+  object-fit: contain;
   background: black;
 }
+#cover-preview-image[hidden] { display: none; }
 .cover-dialog-status {
   position: absolute;
   inset: 0;
@@ -3908,10 +3965,33 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   text-align: center;
 }
 .cover-dialog-status:empty { display: none; }
+.cover-timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.cover-timeline input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.cover-timeline input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+#cover-time-label {
+  min-width: 156px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .cover-dialog-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   padding: 16px 22px 20px;
   color: var(--muted);
@@ -3926,6 +4006,120 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--text);
+}
+
+.series-category-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+.series-category-chips span {
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 79, 100, .28);
+  border-radius: 999px;
+  background: rgba(255, 79, 100, .08);
+  color: var(--accent-soft);
+  font-size: 11px;
+}
+.series-asset-dialog { width: min(620px, calc(100vw - 36px)); }
+.series-asset-search,
+.series-cover-controls label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.series-asset-dialog .management-dialog-card {
+  display: grid;
+  gap: 16px;
+  padding: 0 22px 20px;
+}
+.series-asset-search {
+  padding-top: 8px;
+}
+.series-category-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  max-height: min(52vh, 520px);
+  overflow: auto;
+}
+.series-category-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.series-category-option small {
+  margin-left: auto;
+  color: var(--accent-soft);
+}
+.series-cover-dialog {
+  width: min(1040px, calc(100vw - 40px));
+}
+.series-cover-dialog .management-dialog-card {
+  display: grid;
+  gap: 16px;
+  padding: 0 22px 20px;
+}
+.series-cover-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+  gap: 20px;
+}
+.series-cover-preview {
+  min-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 70% 20%, rgba(97, 132, 255, .2), transparent 40%),
+    #0c0e13;
+}
+.series-cover-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  object-fit: contain;
+}
+.series-cover-controls {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+.series-cover-controls > label:has(input[type="radio"]) {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+.series-cover-controls select,
+.series-cover-controls input[type="range"] {
+  width: 100%;
+}
+.series-cover-controls small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 860px) {
+  .series-category-options,
+  .series-cover-layout {
+    grid-template-columns: 1fr;
+  }
+  .series-cover-preview,
+  .series-cover-preview img {
+    min-height: 220px;
+  }
 }
 .metadata-confirm-dialog {
   width: min(500px, calc(100vw - 36px));
@@ -4086,6 +4280,8 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
   .episode-nav-button { padding: 10px 12px; }
   .cover-dialog-footer { align-items: stretch; flex-direction: column; }
   .cover-dialog-actions { justify-content: flex-end; }
+  .cover-timeline { grid-template-columns: 1fr; gap: 8px; }
+  #cover-time-label { min-width: 0; text-align: left; }
   .download-source-heading { display: none; }
   .download-source-row {
     grid-template-columns: minmax(0, 1fr) 34px;
@@ -4583,6 +4779,9 @@ dd { margin: 0; font-size: 14px; font-weight: 650; }
 }
 .management-actions {
   min-width: 190px;
+}
+.management-series-table .management-actions {
+  min-width: 380px;
 }
 .management-actions > * {
   margin: 2px 6px 2px 0;

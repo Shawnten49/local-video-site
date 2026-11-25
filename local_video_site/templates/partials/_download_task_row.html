@@ -170,7 +170,7 @@
   <td class="download-actions">
     <div class="download-actions-inner">
     {% if task.video_id and task.video_available %}
-    <a href="/watch/{{ task.video_id }}">播放</a>
+              <a href="/watch/{{ task.video_id }}">播放</a>
     {% elif task.status == "success" and not task.video_available %}
     <span class="download-orphan-label">源视频已删除</span>
     {% endif %}

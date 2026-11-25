@@ -254,9 +254,14 @@ def season_context_for_video(
                    v.storage_volume_id, v.storage_relative_path,
                    v.storage_changed_at, v.thumbnail_path,
                    v.preview_path, v.preview_status, v.preview_updated_at,
-                   v.updated_at AS video_updated_at
+                   v.updated_at AS video_updated_at,
+                   volume.online_state AS storage_online_state,
+                   volume.mount_path AS storage_mount_path,
+                   volume.root_relative_path AS storage_root_relative_path
             FROM video_episodes e
             LEFT JOIN video_catalog v ON v.id = e.video_id
+            LEFT JOIN video_storage_volumes volume
+              ON volume.id = v.storage_volume_id
             WHERE {}
             ORDER BY e.episode_number
             """.format(episode_where),
@@ -406,11 +411,27 @@ def update_season_assets_from_video(video_id: int) -> None:
         ).fetchone()
         if video is None:
             return
+        now = _now()
         connection.execute(
             """
             UPDATE video_seasons
             SET cover_path = COALESCE(?, cover_path),
-                preview_path = COALESCE(?, preview_path),
+                cover_updated_at = ?,
+                updated_at = ?
+            WHERE representative_video_id = ?
+              AND cover_source = 'inherited'
+            """,
+            (
+                video["thumbnail_path"],
+                now,
+                now,
+                int(video_id),
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE video_seasons
+            SET preview_path = COALESCE(?, preview_path),
                 preview_status = CASE
                     WHEN ? = 'ready' THEN 'ready'
                     ELSE preview_status
@@ -419,10 +440,9 @@ def update_season_assets_from_video(video_id: int) -> None:
             WHERE metadata_video_id = ?
             """,
             (
-                video["thumbnail_path"],
                 video["preview_path"],
                 video["preview_status"],
-                _now(),
+                now,
                 int(video_id),
             ),
         )

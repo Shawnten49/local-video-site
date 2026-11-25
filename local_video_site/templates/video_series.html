@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>视频集管理 · 本地视频库</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261119-series-edit">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-series-assets">
 </head>
 <body>
   {% include "_admin_topbar.html" %}
@@ -57,7 +57,16 @@
           {% for item in data["items"] %}
           <tr>
             <td class="download-id">#{{ item.id }}</td>
-            <td><strong>{{ item.display_name or item.name }}</strong></td>
+            <td>
+              <strong>{{ item.display_name or item.name }}</strong>
+              {% if item.manual_category_names %}
+              <div class="series-category-chips">
+                {% for category_name in item.manual_category_names.split(" · ") %}
+                <span>{{ category_name }}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </td>
             <td>{{ item.provider or "—" }}</td>
             <td>{{ item.season_count }}</td>
             <td>{{ item.video_count }} / {{ item.episode_count }} 集</td>
@@ -81,6 +90,28 @@
                 title="存在活动删除任务，暂不能修改"
                 {% endif %}
               >修改数据</button>
+              <button
+                class="download-link-button"
+                type="button"
+                data-series-category-target="{{ item.id }}"
+                data-series-category-title="{{ item.display_name or item.name }}"
+                data-series-updated-at="{{ item.updated_at }}"
+                {% if item.active_delete_job_id %}
+                disabled
+                title="存在活动删除任务，暂不能修改"
+                {% endif %}
+              >分类管理</button>
+              <button
+                class="download-link-button"
+                type="button"
+                data-series-cover-target="{{ item.id }}"
+                data-series-cover-title="{{ item.display_name or item.name }}"
+                data-series-updated-at="{{ item.updated_at }}"
+                {% if item.active_delete_job_id %}
+                disabled
+                title="存在活动删除任务，暂不能修改"
+                {% endif %}
+              >视频封面</button>
               <button
                 class="download-link-button download-delete-button"
                 type="button"
@@ -115,6 +146,8 @@
 
   {% include "_collection_delete_dialog.html" %}
   {% include "_series_edit_dialog.html" %}
+  {% include "_series_asset_dialogs.html" %}
   <script src="/static/series-management.js?v=20261119-series-edit"></script>
+  <script src="/static/series-assets.js?v=20261125-series-assets"></script>
 </body>
 </html>

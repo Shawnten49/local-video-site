@@ -51,6 +51,7 @@ def update_custom_cover(
             """,
             (thumbnail_path, timestamp, now, now, video_id),
         )
+    update_season_assets_from_video(int(video_id))
 def reset_auto_cover(
     video_id: int,
     thumbnail_path: Optional[str],
@@ -67,6 +68,7 @@ def reset_auto_cover(
             """,
             (thumbnail_path, now, now, video_id),
         )
+    update_season_assets_from_video(int(video_id))
 def register_playback_cache(
     cache_path: Path,
     video: Dict,

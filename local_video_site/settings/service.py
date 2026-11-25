@@ -156,6 +156,9 @@ class SettingsService:
             "system.thumbnail_dir": config.THUMBNAIL_DIR,
             "system.cover_dir": config.COVER_DIR,
             "system.preview_dir": config.PREVIEW_DIR,
+            "system.cover_preview_dir": config.COVER_PREVIEW_DIR,
+            "system.series_cover_dir": config.SERIES_COVER_DIR,
+            "system.season_cover_dir": config.SEASON_COVER_DIR,
             "system.playback_cache_dir": config.playback_cache_dir(),
             "system.lan_mode": config.lan_mode(),
         }

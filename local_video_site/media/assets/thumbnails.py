@@ -45,6 +45,118 @@ def custom_cover_cache_path(
     return config.COVER_DIR / "{}.jpg".format(digest)
 
 
+def cover_preview_cache_path(
+    video_path: Path,
+    size: int,
+    mtime_ns: int,
+    timestamp: float,
+) -> Path:
+    normalized = round(float(timestamp) * 2) / 2
+    token = "cover-preview-v1:{}:{}:{}:{:.1f}".format(
+        video_path,
+        size,
+        mtime_ns,
+        normalized,
+    ).encode("utf-8")
+    digest = hashlib.sha256(token).hexdigest()[:24]
+    return config.COVER_PREVIEW_DIR / "{}.jpg".format(digest)
+
+
+def _prune_cover_preview_cache(keep: Path) -> None:
+    max_bytes = max(0, int(config.COVER_PREVIEW_MAX_BYTES))
+    files = [
+        path
+        for path in config.COVER_PREVIEW_DIR.glob("*.jpg")
+        if path.is_file()
+    ]
+    total = sum(path.stat().st_size for path in files)
+    for path in sorted(files, key=lambda item: item.stat().st_mtime):
+        if total <= max_bytes:
+            break
+        if path == keep:
+            continue
+        size = path.stat().st_size
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        total -= size
+
+
+def generate_cover_preview(
+    video_path: Path,
+    size: int,
+    mtime_ns: int,
+    timestamp: float,
+    timeout: Optional[float] = None,
+) -> Optional[Path]:
+    timeout = (
+        config.thumbnail_timeout_seconds()
+        if timeout is None
+        else timeout
+    )
+    ffmpeg = available_ffmpeg()
+    if not ffmpeg:
+        return None
+    config.ensure_data_directories()
+    output_path = cover_preview_cache_path(
+        video_path,
+        size,
+        mtime_ns,
+        timestamp,
+    )
+    if output_path.is_file() and output_path.stat().st_size > 0:
+        os.utime(output_path, None)
+        return output_path
+
+    temporary = output_path.with_suffix(".tmp.jpg")
+    try:
+        temporary.unlink()
+    except FileNotFoundError:
+        pass
+    try:
+        with ffmpeg_slot(
+            "cover_preview",
+            wait_seconds=config.ffmpeg_interactive_wait_seconds(),
+        ):
+            completed = subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-ss",
+                    "{:.3f}".format(float(timestamp)),
+                    "-i",
+                    str(video_path),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=480:-2",
+                    "-q:v",
+                    "4",
+                    "-y",
+                    str(temporary),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+    except (OSError, subprocess.SubprocessError):
+        if temporary.exists():
+            temporary.unlink()
+        return None
+    if completed.returncode != 0 or not temporary.is_file():
+        if temporary.exists():
+            temporary.unlink()
+        return None
+    os.replace(temporary, output_path)
+    _prune_cover_preview_cache(output_path)
+    return output_path
+
+
 def generate_custom_cover(
     video_path: Path,
     size: int,

@@ -1,6 +1,9 @@
 package com.shawn.localvideotv.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -14,19 +17,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -278,6 +286,17 @@ private fun TvDetailContent(
     onOpenExternal: (Int) -> Unit,
 ) {
     val episodes = detail.series?.episodes.orEmpty()
+    if (episodes.size > 1) {
+        TvMultiEpisodeDetailContent(
+            detail = detail,
+            episodes = episodes,
+            selectedVideoId = selectedVideoId,
+            posterUrl = posterUrl,
+            onPlay = onPlay,
+        )
+        return
+    }
+
     val firstPlayableFocus = remember { FocusRequester() }
     LaunchedEffect(detail.id, episodes.size, selectedVideoId) {
         withFrameNanos { }
@@ -305,37 +324,302 @@ private fun TvDetailContent(
             modifier = Modifier.weight(0.44f).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            DetailName(detail = detail, episodeCount = episodes.size)
-            SelectedEpisodeStatus(
-                episodes = episodes,
-                selectedVideoId = selectedVideoId,
+            DetailName(detail = detail, episodeCount = 0)
+            DetailActionButtons(
+                detail = detail,
+                onPlay = onPlay,
+                onOpenExternal = onOpenExternal,
+                focusRequester = firstPlayableFocus,
             )
-            if (episodes.isNotEmpty()) {
-                ExternalPlayButton(
+        }
+    }
+}
+
+@Composable
+private fun TvMultiEpisodeDetailContent(
+    detail: VideoDetail,
+    episodes: List<EpisodeInfo>,
+    selectedVideoId: Int,
+    posterUrl: String?,
+    onPlay: (Int) -> Unit,
+) {
+    val initialEpisode = episodes.firstOrNull {
+        it.videoId == selectedVideoId
+    } ?: episodes.firstOrNull { it.videoId != null }
+    var highlightedVideoId by remember(detail.id, selectedVideoId) {
+        mutableIntStateOf(initialEpisode?.videoId ?: selectedVideoId)
+    }
+    val highlightedEpisode = episodes.firstOrNull {
+        it.videoId == highlightedVideoId
+    } ?: initialEpisode
+    val firstEpisodeFocus = remember { FocusRequester() }
+    val initialEpisodeIndex = highlightedEpisode?.let(episodes::indexOf) ?: 0
+    val gridStartIndex = (initialEpisodeIndex / 3) * 3
+    val episodeGridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = gridStartIndex,
+    )
+
+    LaunchedEffect(detail.id, episodes.size, selectedVideoId) {
+        episodeGridState.scrollToItem(gridStartIndex)
+        withFrameNanos { }
+        runCatching { firstEpisodeFocus.requestFocus() }
+        delay(120L)
+        runCatching { firstEpisodeFocus.requestFocus() }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(0.30f),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            TvSeasonSelectionSummary(
+                detail = detail,
+                selectedEpisode = highlightedEpisode,
+                modifier = Modifier.weight(0.62f).fillMaxHeight(),
+            )
+            Box(
+                modifier = Modifier
+                    .weight(0.38f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(18.dp))
+                    .border(
+                        width = 1.dp,
+                        color = Color(0x33FFFFFF),
+                        shape = RoundedCornerShape(18.dp),
+                    ),
+            ) {
+                DetailPoster(
                     detail = detail,
-                    videoId = selectedVideoId,
-                    onOpenExternal = onOpenExternal,
+                    posterUrl = posterUrl,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
-            if (episodes.isEmpty()) {
-                DetailActionButtons(
-                    detail = detail,
-                    onPlay = onPlay,
-                    onOpenExternal = onOpenExternal,
-                    focusRequester = firstPlayableFocus,
-                )
-            } else {
-                EpisodeGrid(
-                    detail = detail,
-                    episodes = episodes,
-                    selectedVideoId = selectedVideoId,
-                    onPlay = onPlay,
-                    columns = 3,
-                    contentPadding = PaddingValues(bottom = 24.dp),
-                    firstFocusRequester = firstPlayableFocus,
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+        }
+        TvEpisodeGrid(
+            episodes = episodes,
+            highlightedVideoId = highlightedVideoId,
+            firstEpisodeFocus = firstEpisodeFocus,
+            gridState = episodeGridState,
+            onHighlight = { highlightedVideoId = it },
+            onPlay = onPlay,
+            modifier = Modifier.fillMaxWidth().weight(0.70f),
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TvSeasonSelectionSummary(
+    detail: VideoDetail,
+    selectedEpisode: EpisodeInfo?,
+    modifier: Modifier = Modifier,
+) {
+    val seasonName = detail.series?.seasonTitle
+        ?.takeIf { it.isNotBlank() }
+        ?: detail.series?.seriesTitle?.takeIf { it.isNotBlank() }
+        ?: detail.title
+    val episodeTitle = selectedEpisode?.title
+        ?.takeIf { it.isNotBlank() }
+        ?: "请选择剧集"
+    val shape = RoundedCornerShape(18.dp)
+
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(Color(0xA612151B))
+            .border(1.dp, Color(0x24FFFFFF), shape)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .height(56.dp)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Accent),
+        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = seasonName,
+                color = TextPrimary,
+                fontSize = 22.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(30.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "%02d".format(
+                            selectedEpisode?.episodeNumber ?: 0,
+                        ),
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = episodeTitle,
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    lineHeight = 21.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clipToBounds()
+                        .basicMarquee(
+                            initialDelayMillis = 1000,
+                            repeatDelayMillis = 1200,
+                            velocity = 36.dp,
+                        ),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun TvEpisodeGrid(
+    episodes: List<EpisodeInfo>,
+    highlightedVideoId: Int,
+    firstEpisodeFocus: FocusRequester,
+    gridState: LazyGridState,
+    onHighlight: (Int) -> Unit,
+    onPlay: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        state = gridState,
+        modifier = modifier.fillMaxSize(),
+    ) {
+        items(episodes, key = { it.episodeNumber }) { episode ->
+            TvEpisodeCard(
+                episode = episode,
+                selected = episode.videoId == highlightedVideoId,
+                onHighlight = {
+                    episode.videoId?.let(onHighlight)
+                },
+                onClick = {
+                    episode.videoId?.let(onPlay)
+                },
+                modifier = if (episode.videoId == highlightedVideoId) {
+                    Modifier.focusRequester(firstEpisodeFocus)
+                } else {
+                    Modifier
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvEpisodeCard(
+    episode: EpisodeInfo,
+    selected: Boolean,
+    onHighlight: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FocusSurface(
+        onClick = onClick,
+        enabled = episode.videoId != null,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(76.dp)
+            .semantics {
+                contentDescription = "第 %02d 集，%s".format(
+                    episode.episodeNumber,
+                    episode.title,
+                )
+            },
+        shape = RoundedCornerShape(13.dp),
+        background = if (selected) Color(0x24FF4F64) else Panel,
+        focusedBackground = PanelFocused,
+        idleBorderColor = if (selected) {
+            Color(0x99FF4F64)
+        } else {
+            Color.Transparent
+        },
+        idleBorderWidth = if (selected) 1.5.dp else 1.dp,
+        onFocusChanged = { isFocused ->
+            if (isFocused) onHighlight()
+        },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(42.dp)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(
+                        if (selected) {
+                            Color(0x55FF4F64)
+                        } else {
+                            Color(0xFF242832)
+                        }
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "%02d".format(episode.episodeNumber),
+                    color = if (episode.videoId != null) {
+                        TextPrimary
+                    } else {
+                        TextSecondary.copy(alpha = 0.6f)
+                    },
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                text = episode.title,
+                color = if (episode.videoId != null) {
+                    TextPrimary
+                } else {
+                    TextSecondary.copy(alpha = 0.6f)
+                },
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
+                fontWeight = if (selected) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Normal
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

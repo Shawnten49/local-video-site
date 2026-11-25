@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.shawn.localvideotv.data.PlaybackProgressStore
 import com.shawn.localvideotv.data.ServerSettings
 import com.shawn.localvideotv.data.TvRepository
+import com.shawn.localvideotv.data.TvCategoryCard
+import com.shawn.localvideotv.data.TvSeriesCard
 import com.shawn.localvideotv.data.VideoCard
 import com.shawn.localvideotv.data.VideoDetail
 import com.shawn.localvideotv.player.ExternalPlaybackTarget
@@ -20,6 +22,16 @@ import retrofit2.HttpException
 sealed interface AppScreen {
     data object Library : AppScreen
     data object Settings : AppScreen
+    data class Category(
+        val categoryKey: String,
+        val title: String,
+    ) : AppScreen
+    data class Series(
+        val seriesId: Int,
+        val categoryKey: String,
+        val categoryTitle: String,
+        val title: String,
+    ) : AppScreen
     data class Detail(val videoId: Int) : AppScreen
 }
 
@@ -63,6 +75,21 @@ data class TvUiState(
     val selectedVideoId: Int? = null,
     val detailLoading: Boolean = false,
     val detailError: String? = null,
+    val tvCategories: List<TvCategoryCard> = emptyList(),
+    val tvHomeLoading: Boolean = false,
+    val tvHomeError: String? = null,
+    val tvCategoryKey: String = "",
+    val tvCategoryTitle: String = "",
+    val tvSeries: List<TvSeriesCard> = emptyList(),
+    val tvSeriesPage: Int = 0,
+    val tvSeriesHasNext: Boolean = false,
+    val tvSeriesTotal: Int = 0,
+    val tvSeriesLoading: Boolean = false,
+    val tvSeriesLoadingMore: Boolean = false,
+    val tvSeriesError: String? = null,
+    val tvSeriesDetail: TvSeriesCard? = null,
+    val tvSeriesDetailLoading: Boolean = false,
+    val tvSeriesDetailError: String? = null,
 )
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -77,6 +104,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     )
     val state: StateFlow<TvUiState> = _state.asStateFlow()
+    private val navigationStack = ArrayDeque<AppScreen>()
+    private var settingsReturnScreen: AppScreen? = null
 
     init {
         refreshLibrary()
@@ -159,6 +188,220 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshTvHome() {
+        _state.update {
+            it.copy(tvHomeLoading = true, tvHomeError = null)
+        }
+        viewModelScope.launch {
+            runCatching { repository.api.home() }
+                .onSuccess { response ->
+                    _state.update {
+                        it.copy(
+                            tvCategories = response.categories,
+                            tvHomeLoading = false,
+                            tvHomeError = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            tvHomeLoading = false,
+                            tvHomeError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun openTvCategory(categoryKey: String, title: String) {
+        navigationStack.addLast(_state.value.screen)
+        _state.update {
+            it.copy(
+                screen = AppScreen.Category(categoryKey, title),
+                tvCategoryKey = categoryKey,
+                tvCategoryTitle = title,
+                tvSeries = emptyList(),
+                tvSeriesPage = 0,
+                tvSeriesHasNext = false,
+                tvSeriesTotal = 0,
+                tvSeriesLoading = true,
+                tvSeriesLoadingMore = false,
+                tvSeriesError = null,
+            )
+        }
+        loadTvSeriesPage(1)
+    }
+
+    private fun loadTvSeriesPage(page: Int) {
+        val current = _state.value
+        viewModelScope.launch {
+            runCatching {
+                repository.api.series(
+                    categoryKey = current.tvCategoryKey,
+                    page = page,
+                )
+            }
+                .onSuccess { response ->
+                    _state.update {
+                        it.copy(
+                            tvSeries = if (page == 1) {
+                                response.items
+                            } else {
+                                (it.tvSeries + response.items)
+                                    .distinctBy(TvSeriesCard::seriesId)
+                            },
+                            tvSeriesPage = response.page,
+                            tvSeriesHasNext = response.hasNext,
+                            tvSeriesTotal = response.total,
+                            tvSeriesLoading = false,
+                            tvSeriesLoadingMore = false,
+                            tvSeriesError = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            tvSeriesLoading = false,
+                            tvSeriesLoadingMore = false,
+                            tvSeriesError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun loadMoreTvSeries() {
+        val current = _state.value
+        if (
+            current.screen !is AppScreen.Category
+            || current.tvSeriesLoading
+            || current.tvSeriesLoadingMore
+            || !current.tvSeriesHasNext
+            || current.tvSeriesPage <= 0
+        ) {
+            return
+        }
+        _state.update { it.copy(tvSeriesLoadingMore = true) }
+        loadTvSeriesPage(current.tvSeriesPage + 1)
+    }
+
+    fun retryTvCategory() {
+        val screen = _state.value.screen as? AppScreen.Category ?: return
+        _state.update {
+            it.copy(
+                tvCategoryKey = screen.categoryKey,
+                tvCategoryTitle = screen.title,
+                tvSeriesLoading = true,
+                tvSeriesError = null,
+            )
+        }
+        loadTvSeriesPage(1)
+    }
+
+    fun openTvSeries(card: TvSeriesCard) {
+        val entryVideoId = card.singleSeasonEntryVideoId
+        if (entryVideoId != null) {
+            openTvDetail(entryVideoId)
+            return
+        }
+        val category = _state.value.screen as? AppScreen.Category
+        navigationStack.addLast(_state.value.screen)
+        _state.update {
+            it.copy(
+                screen = AppScreen.Series(
+                    seriesId = card.seriesId,
+                    categoryKey = category?.categoryKey.orEmpty(),
+                    categoryTitle = category?.title.orEmpty(),
+                    title = card.title,
+                ),
+                tvSeriesDetail = null,
+                tvSeriesDetailLoading = true,
+                tvSeriesDetailError = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.api.seriesDetail(card.seriesId) }
+                .onSuccess { detail ->
+                    _state.update {
+                        it.copy(
+                            tvSeriesDetail = detail,
+                            tvSeriesDetailLoading = false,
+                            tvSeriesDetailError = null,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            tvSeriesDetailLoading = false,
+                            tvSeriesDetailError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun retryTvSeriesDetail() {
+        val screen = _state.value.screen as? AppScreen.Series ?: return
+        _state.update {
+            it.copy(tvSeriesDetailLoading = true, tvSeriesDetailError = null)
+        }
+        viewModelScope.launch {
+            runCatching { repository.api.seriesDetail(screen.seriesId) }
+                .onSuccess { detail ->
+                    _state.update {
+                        it.copy(
+                            tvSeriesDetail = detail,
+                            tvSeriesDetailLoading = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            tvSeriesDetailLoading = false,
+                            tvSeriesDetailError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun openTvDetail(videoId: Int) {
+        navigationStack.addLast(_state.value.screen)
+        _state.update {
+            it.copy(
+                screen = AppScreen.Detail(videoId),
+                detail = null,
+                selectedVideoId = videoId,
+                detailLoading = true,
+                detailError = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { repository.api.videoDetail(videoId) }
+                .onSuccess { detail ->
+                    _state.update {
+                        it.copy(
+                            detail = detail,
+                            selectedVideoId = detail.id,
+                            detailLoading = false,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        it.copy(
+                            detailLoading = false,
+                            detailError = error.userMessage(),
+                        )
+                    }
+                }
+        }
+    }
+
     fun loadMore() {
         val current = _state.value
         if (
@@ -223,10 +466,40 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openSettings() {
+        if (_state.value.screen !is AppScreen.Settings) {
+            settingsReturnScreen = _state.value.screen
+        }
         _state.update { it.copy(screen = AppScreen.Settings) }
     }
 
+    fun backFromSettings() {
+        val previous = settingsReturnScreen ?: AppScreen.Library
+        settingsReturnScreen = null
+        _state.update { it.copy(screen = previous) }
+    }
+
+    fun navigateBack() {
+        if (_state.value.screen is AppScreen.Settings) {
+            backFromSettings()
+            return
+        }
+        val previous = navigationStack.removeLastOrNull()
+            ?: AppScreen.Library
+        _state.update {
+            it.copy(
+                screen = previous,
+                detailError = if (previous is AppScreen.Detail) {
+                    it.detailError
+                } else {
+                    null
+                },
+            )
+        }
+    }
+
     fun backToLibrary() {
+        navigationStack.clear()
+        settingsReturnScreen = null
         _state.update {
             it.copy(
                 screen = AppScreen.Library,

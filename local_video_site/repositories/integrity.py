@@ -127,6 +127,22 @@ def _repair_orphan_video_dependencies(
         """
     )
     relation_count += max(0, cursor.rowcount)
+    cursor = connection.execute(
+        """
+        DELETE FROM video_series_manual_categories
+        WHERE NOT EXISTS (
+              SELECT 1 FROM video_series
+              WHERE video_series.id =
+                    video_series_manual_categories.series_id
+          )
+          OR NOT EXISTS (
+              SELECT 1 FROM manual_categories
+              WHERE manual_categories.id =
+                    video_series_manual_categories.manual_category_id
+          )
+        """
+    )
+    relation_count += max(0, cursor.rowcount)
     return {
         "download_tasks": max(0, task_cursor.rowcount),
         "relations": relation_count,

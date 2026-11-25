@@ -18,7 +18,13 @@ from local_video_site.identity.permissions.content import can_view
 from local_video_site.storage.deletion import delete_password_configured, verify_delete_password
 from local_video_site.integrations.metadata import fetch_site_metadata, metadata_parser_version, metadata_provider_for_url
 from local_video_site.media.editing.rename import VideoRenameError, rename_video
-from local_video_site.media.assets.thumbnails import generate_custom_cover, generate_thumbnail
+from local_video_site.media.assets.thumbnails import (
+    generate_cover_preview,
+    generate_custom_cover,
+    generate_thumbnail,
+)
+from local_video_site.media.ffmpeg import FFmpegBusyError
+from local_video_site.media.info import probe_video
 from local_video_site.storage.deletion_tasks import DeleteTaskError, create_delete_batch
 from local_video_site.storage.volumes import resolve_video_storage
 from ..delete_rate import (
@@ -39,6 +45,8 @@ from ..urls import safe_return_path, watch_url
 router = APIRouter()
 LOGGER = logging.getLogger("local_video_site")
 COVER_GENERATION_LOCK = threading.Lock()
+COVER_PREVIEW_LOCK = threading.Lock()
+COVER_PREVIEW_STEP_SECONDS = 0.5
 
 
 def _visible_video_or_404(request: Request, video_id: int) -> dict:
@@ -46,6 +54,153 @@ def _visible_video_or_404(request: Request, video_id: int) -> dict:
     if not video or not can_view(request.state.identity, video):
         raise HTTPException(status_code=404, detail="视频不存在")
     return video
+
+
+def _cover_source_context(
+    request: Request,
+    video_id: int,
+) -> tuple:
+    video = _visible_video_or_404(request, video_id)
+    resolution = resolve_video_storage(video)
+    storage_label = str(
+        (resolution.get("volume") or {}).get("label") or ""
+    )
+    if resolution["state"] == "external_offline":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "external_offline",
+                "message": (
+                    "视频位于外置硬盘“{}”，当前未连接，请连接硬盘后重试"
+                    .format(storage_label or "外置硬盘")
+                ),
+            },
+        )
+    path = resolution["path"]
+    if not path.is_file():
+        database.mark_video_missing(video_id)
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "file_missing",
+                "message": "视频文件不存在，请重新扫描或恢复文件",
+            },
+        )
+    return video, resolution, path
+
+
+def _cover_duration(video: dict, video_path: Path) -> float:
+    duration = float(video.get("duration") or 0)
+    if duration > 0:
+        return duration
+    info = probe_video(video_path)
+    if info:
+        database.update_video_technical_info(int(video["id"]), info)
+        duration = float(info.get("duration") or 0)
+    return max(0.0, duration)
+
+
+@router.get("/api/videos/{video_id}/cover-editor")
+def cover_editor(request: Request, video_id: int):
+    video, resolution, path = _cover_source_context(request, video_id)
+    duration = _cover_duration(video, path)
+    if duration <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "duration_unavailable",
+                "message": "无法读取视频时长，暂时不能选择封面",
+            },
+        )
+    existing_timestamp = video.get("cover_timestamp")
+    default_timestamp = (
+        float(existing_timestamp)
+        if existing_timestamp is not None
+        else min(max(duration * 0.1, 0.5), max(0.0, duration - 0.1))
+    )
+    version = (
+        video.get("cover_updated_at")
+        or video.get("updated_at")
+        or video.get("mtime_ns")
+        or ""
+    )
+    return {
+        "video_id": int(video_id),
+        "title": str(video.get("title") or ""),
+        "duration": duration,
+        "default_timestamp": round(default_timestamp, 1),
+        "preview_step_seconds": COVER_PREVIEW_STEP_SECONDS,
+        "poster_url": "/thumb/{}?v={}".format(video_id, version),
+        "source_version": str(video.get("mtime_ns") or ""),
+        "storage_state": resolution["state"],
+        "storage_label": str(
+            (resolution.get("volume") or {}).get("label") or ""
+        ),
+    }
+
+
+@router.get("/api/videos/{video_id}/cover-preview")
+def cover_preview(
+    request: Request,
+    video_id: int,
+    timestamp: float = 0,
+):
+    video, resolution, path = _cover_source_context(request, video_id)
+    del resolution
+    if not math.isfinite(timestamp) or timestamp < 0:
+        raise HTTPException(status_code=422, detail="封面时间点无效")
+    duration = _cover_duration(video, path)
+    if duration > 0:
+        timestamp = min(timestamp, max(0.0, duration - 0.1))
+    normalized = (
+        round(timestamp / COVER_PREVIEW_STEP_SECONDS)
+        * COVER_PREVIEW_STEP_SECONDS
+    )
+    if not COVER_PREVIEW_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "preview_busy",
+                "message": "正在提取上一帧画面，请稍后重试",
+            },
+            headers={"Retry-After": "0.2"},
+        )
+    try:
+        thumbnail = generate_cover_preview(
+            video_path=path,
+            size=video["size"],
+            mtime_ns=video["mtime_ns"],
+            timestamp=normalized,
+        )
+    except FFmpegBusyError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ffmpeg_busy",
+                "message": str(exc),
+            },
+            headers={"Retry-After": "2"},
+        ) from exc
+    finally:
+        COVER_PREVIEW_LOCK.release()
+    if not thumbnail:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "cover_preview_failed",
+                "message": "无法从该时间点提取画面",
+            },
+        )
+    return FileResponse(
+        path=thumbnail,
+        media_type="image/jpeg",
+        content_disposition_type="inline",
+        filename=thumbnail.name,
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Cover-Timestamp": "{:.1f}".format(normalized),
+        },
+    )
 
 
 @router.post("/api/videos/{video_id}/metadata/refresh")

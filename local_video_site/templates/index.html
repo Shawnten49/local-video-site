@@ -7,7 +7,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ page_title }}</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261122-readable-titles">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-cover-preview">
 </head>
 <body>
   <header class="site-header topbar">
@@ -175,13 +175,31 @@
         <button class="cover-dialog-close" type="button" aria-label="关闭封面选择">×</button>
       </header>
 
-      <div class="cover-player-shell">
-        <video id="cover-preview-player" controls muted playsinline preload="metadata"></video>
-        <p id="cover-dialog-status" class="cover-dialog-status"></p>
+      <div class="cover-preview-shell">
+        <img id="cover-preview-image" alt="封面预览" hidden>
+        <p
+          id="cover-dialog-status"
+          class="cover-dialog-status"
+          role="status"
+          aria-live="polite"
+        ></p>
+      </div>
+
+      <div class="cover-timeline">
+        <input
+          id="cover-time-slider"
+          type="range"
+          min="0"
+          max="0"
+          step="0.5"
+          value="0"
+          disabled
+          aria-label="选择封面时间点"
+        >
+        <span id="cover-time-label">当前画面：00:00</span>
       </div>
 
       <footer class="cover-dialog-footer">
-        <span id="cover-time-label">当前画面：00:00</span>
         <div class="cover-dialog-actions">
           <button id="restore-cover-button" class="cover-secondary-button" type="button">恢复自动封面</button>
           <button id="save-cover-button" type="button">使用当前画面</button>
@@ -190,7 +208,7 @@
     </div>
   </dialog>
   {% endif %}
-  <script src="/static/cover.js"></script>
+  <script src="/static/cover.js?v=20261125-cover-preview"></script>
   <script src="/static/hover-preview.js" defer></script>
 </body>
 </html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ series.display_name or series.name }} · 视频季</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261119-series-edit">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-season-cover">
 </head>
 <body>
   {% include "_admin_topbar.html" %}
@@ -93,6 +93,18 @@
                 {% endif %}
               >修改数据</button>
               <button
+                class="download-link-button"
+                type="button"
+                data-season-cover-series="{{ series.id }}"
+                data-season-cover-season="{{ item.id }}"
+                data-season-cover-title="{{ item.display_name or item.name }}"
+                data-season-cover-updated-at="{{ item.updated_at }}"
+                {% if item.active_delete_job_id %}
+                disabled
+                title="存在活动删除任务，暂不能修改"
+                {% endif %}
+              >视频封面</button>
+              <button
                 class="download-link-button download-delete-button"
                 type="button"
                 data-delete-scope="season"
@@ -126,6 +138,8 @@
 
   {% include "_collection_delete_dialog.html" %}
   {% include "_series_edit_dialog.html" %}
+  {% include "_season_cover_dialog.html" %}
   <script src="/static/series-management.js?v=20261119-series-edit"></script>
+  <script src="/static/season-cover.js?v=20261125-season-cover"></script>
 </body>
 </html>

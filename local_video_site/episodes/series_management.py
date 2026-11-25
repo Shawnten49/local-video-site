@@ -101,7 +101,22 @@ def list_series(
                          AND j.target_id = sr.id
                          AND j.status IN ('pending', 'running', 'blocked')
                        ORDER BY j.id DESC LIMIT 1
-                   ) AS active_delete_job_id
+                   ) AS active_delete_job_id,
+                   (
+                       SELECT GROUP_CONCAT(mc.name, ' · ')
+                       FROM video_series_manual_categories smc
+                       JOIN manual_categories mc
+                         ON mc.id = smc.manual_category_id
+                       WHERE smc.series_id = sr.id
+                   ) AS manual_category_names,
+                   (
+                       SELECT GROUP_CONCAT(mc.system_key, ',')
+                       FROM video_series_manual_categories smc
+                       JOIN manual_categories mc
+                         ON mc.id = smc.manual_category_id
+                       WHERE smc.series_id = sr.id
+                         AND mc.system_key IS NOT NULL
+                   ) AS system_category_keys
             FROM video_series sr
             WHERE {}
             ORDER BY COALESCE(
@@ -153,7 +168,22 @@ def get_series(series_id: int) -> Optional[Dict]:
                          AND j.target_id = sr.id
                          AND j.status IN ('pending', 'running', 'blocked')
                        ORDER BY j.id DESC LIMIT 1
-                   ) AS active_delete_job_id
+                   ) AS active_delete_job_id,
+                   (
+                       SELECT GROUP_CONCAT(mc.name, ' · ')
+                       FROM video_series_manual_categories smc
+                       JOIN manual_categories mc
+                         ON mc.id = smc.manual_category_id
+                       WHERE smc.series_id = sr.id
+                   ) AS manual_category_names,
+                   (
+                       SELECT GROUP_CONCAT(mc.system_key, ',')
+                       FROM video_series_manual_categories smc
+                       JOIN manual_categories mc
+                         ON mc.id = smc.manual_category_id
+                       WHERE smc.series_id = sr.id
+                         AND mc.system_key IS NOT NULL
+                   ) AS system_category_keys
             FROM video_series sr
             WHERE sr.id = ? AND sr.is_deleted = 0
             """,

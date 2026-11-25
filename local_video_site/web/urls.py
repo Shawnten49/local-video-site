@@ -43,11 +43,20 @@ def path_without_query_params(
     return path
 
 
-def watch_url(video_id: int, return_to: str) -> str:
+def watch_url(
+    video_id: int,
+    return_to: str,
+    start_playback: bool = False,
+) -> str:
     path = "/watch/{}".format(int(video_id))
-    if not str(return_to or "").strip():
+    params = {}
+    if str(return_to or "").strip():
+        params["return_to"] = safe_return_path(return_to)
+    if start_playback:
+        params["start"] = "1"
+    if not params:
         return path
     return "{}?{}".format(
         path,
-        urlencode({"return_to": safe_return_path(return_to)}),
+        urlencode(params),
     )

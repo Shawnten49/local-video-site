@@ -73,5 +73,6 @@ def run(args, logger: logging.Logger) -> int:
         port=args.port,
         reload=False,
         log_config=None,
+        timeout_graceful_shutdown=10,
     )
     return 0

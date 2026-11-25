@@ -308,21 +308,21 @@ class LocalVideoSiteTests(unittest.TestCase):
 
                 self.assertIn(
                     'href="/watch/{}?return_to='
-                    '%2F%3Fsort%3Dname%26page%3D1"'.format(
+                    '%2F%3Fsort%3Dname%26page%3D1&amp;start=1"'.format(
                         first_second_page["id"]
                     ),
                     first_detail.text,
                 )
                 self.assertIn(
                     'href="/watch/{}?return_to='
-                    '%2F%3Fsort%3Dname%26page%3D1"'.format(
+                    '%2F%3Fsort%3Dname%26page%3D1&amp;start=1"'.format(
                         last_first_page["id"]
                     ),
                     second_detail.text,
                 )
                 self.assertIn(
                     'href="/watch/{}?return_to='
-                    '%2F%3Fsort%3Dname%26page%3D1"'.format(
+                    '%2F%3Fsort%3Dname%26page%3D1&amp;start=1"'.format(
                         second_second_page["id"]
                     ),
                     second_detail.text,
@@ -332,11 +332,15 @@ class LocalVideoSiteTests(unittest.TestCase):
                     "/watch/{}".format(first_second_page["id"])
                 )
                 self.assertIn(
-                    'href="/watch/{}'.format(last_first_page["id"]),
+                    'href="/watch/{}?return_to=%2F&amp;start=1'.format(
+                        last_first_page["id"]
+                    ),
                     direct_detail.text,
                 )
                 self.assertIn(
-                    'href="/watch/{}'.format(second_second_page["id"]),
+                    'href="/watch/{}?return_to=%2F&amp;start=1'.format(
+                        second_second_page["id"]
+                    ),
                     direct_detail.text,
                 )
                 self.assertNotIn("没有上一集", direct_detail.text)
@@ -347,7 +351,7 @@ class LocalVideoSiteTests(unittest.TestCase):
                     params={"return_to": "/"},
                 )
                 self.assertIn(
-                    'href="/watch/{}?return_to=%2F"'.format(
+                    'href="/watch/{}?return_to=%2F&amp;start=1"'.format(
                         first_second_page["id"]
                     ),
                     root_first.text,
@@ -359,7 +363,7 @@ class LocalVideoSiteTests(unittest.TestCase):
                 self.assertNotIn("没有上一集", root_second.text)
                 self.assertNotIn("没有下一集", root_second.text)
                 self.assertIn(
-                    'href="/watch/{}?return_to=%2F"'.format(
+                    'href="/watch/{}?return_to=%2F&amp;start=1"'.format(
                         second_second_page["id"]
                     ),
                     root_second.text,

@@ -19,6 +19,30 @@ THUMBNAIL_DIR = Path(
 COVER_DIR = Path(
     os.environ.get("LOCAL_VIDEO_COVERS", DATA_DIR / "covers")
 ).expanduser()
+COVER_PREVIEW_DIR = Path(
+    os.environ.get(
+        "LOCAL_VIDEO_COVER_PREVIEW_DIR",
+        DATA_DIR / "cover-preview-cache",
+    )
+).expanduser()
+COVER_PREVIEW_MAX_BYTES = int(
+    os.environ.get(
+        "LOCAL_VIDEO_COVER_PREVIEW_MAX_BYTES",
+        256 * 1024 * 1024,
+    )
+)
+SERIES_COVER_DIR = Path(
+    os.environ.get(
+        "LOCAL_VIDEO_SERIES_COVERS",
+        DATA_DIR / "series-covers",
+    )
+).expanduser()
+SEASON_COVER_DIR = Path(
+    os.environ.get(
+        "LOCAL_VIDEO_SEASON_COVERS",
+        DATA_DIR / "season-covers",
+    )
+).expanduser()
 ACTOR_AVATAR_DIR = Path(
     os.environ.get("LOCAL_VIDEO_ACTOR_AVATARS", DATA_DIR / "actor-avatars")
 ).expanduser()
@@ -717,6 +741,9 @@ def ensure_data_directories() -> None:
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
     COVER_DIR.mkdir(parents=True, exist_ok=True)
+    COVER_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    SERIES_COVER_DIR.mkdir(parents=True, exist_ok=True)
+    SEASON_COVER_DIR.mkdir(parents=True, exist_ok=True)
     ACTOR_AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     playback_cache_dir().mkdir(parents=True, exist_ok=True)
     DOWNLOAD_TASK_LOG_DIR.mkdir(parents=True, exist_ok=True)

@@ -16,6 +16,21 @@ interface TvApi {
         @Query("sort") sort: String = "recent",
     ): VideoPage
 
+    @GET("api/tv/v1/home")
+    suspend fun home(): TvHomeResponse
+
+    @GET("api/tv/v1/series")
+    suspend fun series(
+        @Query("category_key") categoryKey: String,
+        @Query("page") page: Int,
+        @Query("page_size") pageSize: Int = 20,
+    ): TvSeriesPage
+
+    @GET("api/tv/v1/series/{seriesId}")
+    suspend fun seriesDetail(
+        @Path("seriesId") seriesId: Int,
+    ): TvSeriesCard
+
     @GET("api/tv/v1/videos/{videoId}")
     suspend fun videoDetail(@Path("videoId") videoId: Int): VideoDetail
 

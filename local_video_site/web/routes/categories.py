@@ -170,7 +170,10 @@ def api_create_manual_category(selection: ManualCategoryCreate):
 
 @router.delete("/api/manual-categories/{manual_category_id}")
 def api_delete_manual_category(manual_category_id: int):
-    category = database.delete_manual_category(manual_category_id)
+    try:
+        category = database.delete_manual_category(manual_category_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not category:
         raise HTTPException(status_code=404, detail="人工标签不存在")
     LOGGER.info(

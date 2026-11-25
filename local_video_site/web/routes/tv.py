@@ -6,9 +6,16 @@ from typing import Dict, List, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from local_video_site import database
+from local_video_site.catalog.tv_home import (
+    get_tv_series,
+    list_tv_series,
+    season_cover_file,
+    series_cover_file,
+    tv_home_categories,
+)
 from local_video_site.identity.permissions.account import GUEST_IDENTITY
 from local_video_site.identity.permissions.content import can_view
 from local_video_site.media.ffmpeg import FFmpegBusyError
@@ -114,6 +121,11 @@ def _safe_playback(video_id: int) -> Dict:
     return {
         "video_id": int(video_id),
         "state": state.get("state") or "playback_failed",
+        "title": str(
+            state.get("title")
+            or (video.get("title") if video else "")
+            or ""
+        ),
         "playable": bool(state.get("playable")),
         "message": str(state.get("message") or ""),
         "retryable": bool(state.get("retryable")),
@@ -147,11 +159,7 @@ def _season_episodes(video_id: int) -> Optional[Dict]:
     episodes: List[Dict] = []
     for episode in season.get("episodes") or []:
         resolved_id = episode.get("resolved_video_id")
-        playable = bool(
-            resolved_id is not None
-            and not int(episode.get("video_is_deleted") or 0)
-            and not int(episode.get("video_missing") or 0)
-        )
+        playable = resolved_id is not None
         number = int(episode.get("episode_number") or 0)
         episodes.append({
             "video_id": (
@@ -186,6 +194,8 @@ def _season_episodes(video_id: int) -> Optional[Dict]:
     )
     return {
         "id": int(season["id"]),
+        "series_id": int(season.get("series_id") or 0),
+        "season_id": int(season["id"]),
         "series_title": season.get("series_name") or "",
         "season_title": season.get("season_name") or "",
         "episodes": episodes,
@@ -236,6 +246,71 @@ def videos(
     return JSONResponse(
         payload,
         headers={"Cache-Control": "private, max-age=10"},
+    )
+
+
+@router.get("/home")
+def category_home() -> JSONResponse:
+    return JSONResponse(
+        tv_home_categories(),
+        headers={"Cache-Control": "private, max-age=10"},
+    )
+
+
+@router.get("/series")
+def series_list(
+    category_key: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=60),
+) -> JSONResponse:
+    try:
+        payload = list_tv_series(
+            category_key,
+            page=page,
+            page_size=page_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "private, max-age=10"},
+    )
+
+
+@router.get("/series/{series_id}")
+def series_detail(series_id: int) -> JSONResponse:
+    payload = get_tv_series(series_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="视频集不存在")
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "private, max-age=10"},
+    )
+
+
+@router.get("/series/{series_id}/cover")
+def series_cover(series_id: int):
+    path = series_cover_file(series_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="视频集封面不存在")
+    return FileResponse(
+        path=path,
+        media_type="image/jpeg",
+        content_disposition_type="inline",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@router.get("/seasons/{season_id}/cover")
+def season_cover(season_id: int):
+    path = season_cover_file(season_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="视频季封面不存在")
+    return FileResponse(
+        path=path,
+        media_type="image/jpeg",
+        content_disposition_type="inline",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
 

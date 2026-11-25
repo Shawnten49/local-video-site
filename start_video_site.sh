@@ -333,9 +333,16 @@ launch_background() {
   mkdir -p "$LOG_DIR" "$(dirname "$PID_FILE")"
   if [ -e "$PID_FILE" ]; then
     stale_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [ -n "$stale_pid" ] && kill -0 "$stale_pid" 2>/dev/null; then
-      log_warn "后台 PID 文件对应的进程仍在运行，拒绝重复启动: $stale_pid"
-      exit 1
+    if [ -n "$stale_pid" ]; then
+      case " $(project_server_pids | tr '\n' ' ') " in
+        *" $stale_pid "*)
+          log_warn "后台 PID 文件对应的进程仍在运行，拒绝重复启动: $stale_pid"
+          exit 1
+          ;;
+        *)
+          rm -f "$PID_FILE"
+          ;;
+      esac
     else
       rm -f "$PID_FILE"
     fi
@@ -343,16 +350,38 @@ launch_background() {
 
   log_info "正在后台启动本地视频站: $BASE_URL"
   log_info "后台输出日志: $BACKGROUND_LOG"
+  set -- .venv/bin/python -m local_video_site serve \
+    --host "$HOST" --port "$PORT"
   if [ "$OPEN_BROWSER" -eq 1 ]; then
-    nohup .venv/bin/python -m local_video_site serve \
-      --host "$HOST" --port "$PORT" --open \
-      >>"$BACKGROUND_LOG" 2>&1 </dev/null &
-  else
-    nohup .venv/bin/python -m local_video_site serve \
-      --host "$HOST" --port "$PORT" \
-      >>"$BACKGROUND_LOG" 2>&1 </dev/null &
+    set -- "$@" --open
   fi
-  background_pid=$!
+  background_pid="$(
+    .venv/bin/python - "$BACKGROUND_LOG" "$@" <<'PY'
+import subprocess
+import sys
+
+log_path = sys.argv[1]
+command = sys.argv[2:]
+with open(log_path, "ab", buffering=0) as log:
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        close_fds=True,
+        start_new_session=True,
+    )
+print(process.pid)
+PY
+  )"
+  case "$background_pid" in
+    ''|*[!0-9]*)
+      rm -f "$PID_FILE"
+      log_warn "后台启动失败：无法创建独立服务进程。"
+      tail -n 30 "$BACKGROUND_LOG" >&2 2>/dev/null || true
+      exit 1
+      ;;
+  esac
   printf '%s\n' "$background_pid" >"$PID_FILE"
   if [ "$KEEP_AWAKE" -eq 1 ]; then
     attach_keep_awake "$background_pid"
@@ -497,6 +526,32 @@ elif [ -n "$(listening_pids)" ]; then
   log_warn "请关闭该程序，或使用 LOCAL_VIDEO_PORT=其他端口 启动。"
   exit 1
 else
+  orphan_pids="$(project_server_pids)"
+  if [ -n "$orphan_pids" ]; then
+    log_warn "发现无监听但仍在运行的本项目服务进程，正在清理。"
+    for pid in $orphan_pids; do
+      kill "$pid" 2>/dev/null || true
+    done
+    attempts=0
+    while [ "$attempts" -lt 50 ]; do
+      remaining=""
+      for pid in $orphan_pids; do
+        if kill -0 "$pid" 2>/dev/null; then
+          remaining="$pid"
+          break
+        fi
+      done
+      [ -z "$remaining" ] && break
+      sleep 0.2
+      attempts=$((attempts + 1))
+    done
+    for pid in $orphan_pids; do
+      if kill -0 "$pid" 2>/dev/null; then
+        log_warn "残留进程未在超时内退出，强制结束: $pid"
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+    done
+  fi
   log_info "正在启动本地视频站: $BASE_URL"
 fi
 

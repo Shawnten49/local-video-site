@@ -338,6 +338,8 @@ data_dictionary_migration = Migration(
     "add searchable schema vocabulary and strict value guards",
     data_dictionary_statements(),
     compatible_checksums=(
+        "b935a29e8edb76480a0b37a88365288937e593bd91dea2c0c697102e358c9caf",
+        "cb16b7a7e9bf62750edc0d08aabbdcd3f345a9ecdeba2e25fbfb52c068b34472",
         "652335afb87351fe1ae955b7229d1de371e01da1435998f079e19704ff6fa0b4",
         "cef09f273822f4458baf03290280a54a50044a991294ee4a16190bf38dfd455a",
     ),

@@ -60,6 +60,24 @@ async function initialize() {
     "[data-copy-external-playback]",
   );
   const externalOnly = nativePlayer.dataset.externalOnly === "1";
+  const startPlayback = nativePlayer.dataset.startPlayback === "1";
+  const currentVideoId = Number(nativePlayer.dataset.videoId || 0);
+  const returnTo = nativePlayer.dataset.returnTo || "";
+  const decisionDialog = document.getElementById(
+    "playback-decision-dialog",
+  );
+  const decisionTitle = document.getElementById(
+    "playback-decision-title",
+  );
+  const decisionMessage = document.getElementById(
+    "playback-decision-message",
+  );
+  const decisionRetry = document.getElementById(
+    "retry-playback-decision",
+  );
+  const decisionCopy = document.getElementById(
+    "copy-playback-decision-url",
+  );
   const stateUrl = nativePlayer.dataset.stateUrl;
   const prepareUrl = nativePlayer.dataset.prepareUrl;
   const standardizePreviewUrl =
@@ -70,6 +88,7 @@ async function initialize() {
   let standardizePreview = null;
   let standardizePollTimer = null;
   let cachedExternalPlayback = null;
+  let decisionVideoId = null;
 
   const supportsExternalPlayback = (() => {
     const extension = String(
@@ -95,11 +114,11 @@ async function initialize() {
     externalPlaybackStatus.classList.toggle("is-error", error);
   }
 
-  async function fetchExternalPlayback() {
-    if (!externalPlaybackUrl || !supportsExternalPlayback) {
+  async function fetchExternalPlayback(videoId = currentVideoId) {
+    if (!videoId) {
       throw new Error("当前视频不支持外部播放");
     }
-    const response = await fetch(externalPlaybackUrl, {
+    const response = await fetch(`/api/external-playback/${videoId}`, {
       cache: "no-store",
     });
     const payload = await response.json().catch(() => ({}));
@@ -131,9 +150,9 @@ async function initialize() {
     textarea.remove();
   }
 
-  async function copyExternalPlaybackUrl() {
+  async function copyExternalPlaybackUrl(videoId = currentVideoId) {
     try {
-      const info = await fetchExternalPlayback();
+      const info = await fetchExternalPlayback(videoId);
       await copyText(absoluteExternalUrl(info));
       showExternalStatus("原始视频地址已复制。");
     } catch (error) {
@@ -144,17 +163,83 @@ async function initialize() {
     }
   }
 
-  async function openExternalPlayback() {
-    try {
-      showExternalStatus("正在请求本机 VLC 打开原片…");
-      const response = await fetch(`${externalPlaybackUrl}/open`, {
+  async function requestExternalOpen(videoId) {
+    const response = await fetch(
+      `/api/external-playback/${videoId}/open`,
+      {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: "{}",
         cache: "no-store",
-      });
+      },
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        payload.detail?.message
+          || payload.detail
+          || `HTTP ${response.status}`,
+      );
+    }
+    return payload;
+  }
+
+  async function openExternalPlayback(videoId = currentVideoId) {
+    try {
+      showExternalStatus("正在请求本机 VLC 打开原片…");
+      const payload = await requestExternalOpen(videoId);
+      showExternalStatus(payload.message || "已请求 VLC 打开原始视频。");
+      return true;
+    } catch (error) {
+      const message = error.message || "无法启动 VLC";
+      showExternalStatus(
+        `${message} 可以改用“复制原始地址”或下载播放列表。`,
+        true,
+      );
+      return false;
+    }
+  }
+
+  function showPlaybackDecision({
+    title = "无法播放",
+    message = "当前视频暂时无法播放",
+    retryable = false,
+    videoId = null,
+    canCopy = false,
+  }) {
+    decisionVideoId = videoId;
+    if (decisionTitle) decisionTitle.textContent = title;
+    if (decisionMessage) decisionMessage.textContent = message;
+    if (decisionRetry) decisionRetry.hidden = !retryable;
+    if (decisionCopy) decisionCopy.hidden = !canCopy;
+    decisionDialog?.showModal();
+  }
+
+  function markCurrentEpisode(card) {
+    document.querySelectorAll(
+      ".season-episode-button.is-current",
+    ).forEach((item) => {
+      if (item !== card) item.classList.remove("is-current");
+    });
+    card?.classList.add("is-current");
+  }
+
+  async function resolveEpisodePlayback(card) {
+    const videoId = Number(card.dataset.resolveVideo || 0);
+    if (!videoId || card.dataset.decisionPending === "1") return;
+    card.dataset.decisionPending = "1";
+    card.classList.add("is-checking");
+    try {
+      const response = await fetch(
+        `/api/playback/resolve/${videoId}?return_to=${
+          encodeURIComponent(returnTo)
+        }`,
+        {
+          cache: "no-store",
+        },
+      );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(
@@ -163,13 +248,45 @@ async function initialize() {
             || `HTTP ${response.status}`,
         );
       }
-      showExternalStatus(payload.message || "已请求 VLC 打开原始视频。");
+      if (payload.action === "native_playback" && payload.native_url) {
+        window.location.assign(payload.native_url);
+        return;
+      }
+      if (payload.action === "external_vlc") {
+        markCurrentEpisode(card);
+        const opened = await openExternalPlayback(videoId);
+        if (!opened) {
+          showPlaybackDecision({
+            title: "无法打开 VLC",
+            message: (
+              "VLC 没有接受当前视频地址。可以重试，"
+              + "或复制地址后在 VLC 中手动打开。"
+            ),
+            retryable: true,
+            videoId,
+            canCopy: payload.can_open_vlc,
+          });
+        }
+        return;
+      }
+      showPlaybackDecision({
+        title: payload.title || "无法播放",
+        message: payload.message || "当前视频暂时无法播放",
+        retryable: Boolean(payload.retryable),
+        videoId,
+        canCopy: Boolean(payload.can_open_vlc),
+      });
     } catch (error) {
-      const message = error.message || "无法启动 VLC";
-      showExternalStatus(
-        `${message} 可以改用“复制原始地址”或下载播放列表。`,
-        true,
-      );
+      showPlaybackDecision({
+        title: "无法检查视频状态",
+        message: error.message || "请检查服务器连接后重试",
+        retryable: true,
+        videoId,
+        canCopy: false,
+      });
+    } finally {
+      card.dataset.decisionPending = "0";
+      card.classList.remove("is-checking");
     }
   }
 
@@ -246,10 +363,10 @@ async function initialize() {
   }
 
   externalOpenButtons.forEach((button) => {
-    button.addEventListener("click", openExternalPlayback);
+    button.addEventListener("click", () => openExternalPlayback(currentVideoId));
   });
   externalCopyButtons.forEach((button) => {
-    button.addEventListener("click", copyExternalPlaybackUrl);
+    button.addEventListener("click", () => copyExternalPlaybackUrl(currentVideoId));
   });
   const externalPlaylistLink = document.getElementById(
     "download-external-playlist",
@@ -257,19 +374,41 @@ async function initialize() {
   if (externalPlaylistLink && externalPlaylistUrl) {
     externalPlaylistLink.href = externalPlaylistUrl;
   }
+  document.addEventListener("click", (event) => {
+    const episode = event.target.closest("[data-resolve-video]");
+    if (!episode) return;
+    event.preventDefault();
+    resolveEpisodePlayback(episode);
+  });
+  document.querySelectorAll("[data-close-playback-decision]").forEach(
+    (button) => {
+      button.addEventListener("click", () => decisionDialog?.close());
+    },
+  );
+  decisionRetry?.addEventListener("click", () => {
+    const card = document.querySelector(
+      `[data-resolve-video="${decisionVideoId}"]`,
+    );
+    decisionDialog?.close();
+    if (card) resolveEpisodePlayback(card);
+  });
+  decisionCopy?.addEventListener("click", () => {
+    if (decisionVideoId) copyExternalPlaybackUrl(decisionVideoId);
+  });
   if (externalOnly) {
     if (!supportsExternalPlayback) {
       showExternalStatus("当前视频需要使用外部播放器打开。", true);
       return;
     }
-    if (["127.0.0.1", "localhost", "::1"].includes(location.hostname)) {
-      openExternalPlayback();
-    } else {
+    if (!["127.0.0.1", "localhost", "::1"].includes(location.hostname)) {
       showExternalStatus(
         "当前通过局域网访问，请复制视频地址后在 VLC 中打开，"
         + "或下载播放列表。",
       );
     }
+    return;
+  }
+  if (!startPlayback) {
     return;
   }
 

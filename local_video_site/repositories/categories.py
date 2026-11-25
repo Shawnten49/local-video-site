@@ -20,6 +20,14 @@ from .videos import video_repository, video_with_preview_state
 
 _video_with_preview_state = video_with_preview_state
 
+TV_CATEGORY_KEYS = (
+    ("tv", "电视剧"),
+    ("movie", "电影"),
+    ("anime", "动漫"),
+    ("documentary", "纪录片"),
+    ("other", "其它"),
+)
+
 
 def category_fetch_cache_map() -> Dict[int, Dict]:
     with connect() as connection:
@@ -204,7 +212,9 @@ def list_manual_categories(query: str = "") -> List[Dict]:
         rows = connection.execute(
             """
             SELECT mc.id, mc.name, mc.normalized_name,
-                   COUNT(DISTINCT v.id) AS video_count
+                   mc.system_key, mc.is_system,
+                   COUNT(DISTINCT v.id) AS video_count,
+                   COUNT(DISTINCT smc.series_id) AS series_count
             FROM manual_categories mc
             LEFT JOIN video_manual_categories vmc
                 ON vmc.manual_category_id = mc.id
@@ -212,9 +222,11 @@ def list_manual_categories(query: str = "") -> List[Dict]:
                 ON v.id = vmc.video_id
                AND v.missing = 0
                AND v.is_deleted = 0
+            LEFT JOIN video_series_manual_categories smc
+                ON smc.manual_category_id = mc.id
             WHERE 1 = 1 {}
             GROUP BY mc.id
-            ORDER BY video_count DESC,
+            ORDER BY mc.is_system DESC, video_count DESC,
                      mc.normalized_name COLLATE NOCASE ASC
             """.format(query_clause),
             params,
@@ -225,7 +237,9 @@ def get_manual_category(manual_category_id: int) -> Optional[Dict]:
         row = connection.execute(
             """
             SELECT mc.id, mc.name, mc.normalized_name,
-                   COUNT(DISTINCT v.id) AS video_count
+                   mc.system_key, mc.is_system,
+                   COUNT(DISTINCT v.id) AS video_count,
+                   COUNT(DISTINCT smc.series_id) AS series_count
             FROM manual_categories mc
             LEFT JOIN video_manual_categories vmc
                 ON vmc.manual_category_id = mc.id
@@ -233,6 +247,8 @@ def get_manual_category(manual_category_id: int) -> Optional[Dict]:
                 ON v.id = vmc.video_id
                AND v.missing = 0
                AND v.is_deleted = 0
+            LEFT JOIN video_series_manual_categories smc
+                ON smc.manual_category_id = mc.id
             WHERE mc.id = ?
             GROUP BY mc.id
             """,
@@ -277,9 +293,19 @@ def delete_manual_category(manual_category_id: int) -> Optional[Dict]:
         if row is None:
             connection.rollback()
             return None
+        if int(row["is_system"] or 0):
+            connection.rollback()
+            raise ValueError("TV 首页固定分类不能删除")
         connection.execute(
             """
             DELETE FROM video_manual_categories
+            WHERE manual_category_id = ?
+            """,
+            (int(manual_category_id),),
+        )
+        connection.execute(
+            """
+            DELETE FROM video_series_manual_categories
             WHERE manual_category_id = ?
             """,
             (int(manual_category_id),),
@@ -290,6 +316,93 @@ def delete_manual_category(manual_category_id: int) -> Optional[Dict]:
         )
         connection.commit()
         return dict(row)
+
+
+def manual_categories_for_series(series_id: int) -> List[Dict]:
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT mc.id, mc.name, mc.normalized_name,
+                   mc.system_key, mc.is_system
+            FROM video_series_manual_categories smc
+            JOIN manual_categories mc
+                ON mc.id = smc.manual_category_id
+            JOIN video_series sr
+                ON sr.id = smc.series_id
+            WHERE smc.series_id = ?
+              AND sr.is_deleted = 0
+            ORDER BY mc.is_system DESC,
+                     mc.normalized_name COLLATE NOCASE ASC
+            """,
+            (int(series_id),),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def set_series_manual_categories(
+    series_id: int,
+    manual_category_ids: List[int],
+    expected_updated_at: str = "",
+) -> List[Dict]:
+    ids = sorted({int(value) for value in manual_category_ids})
+    now = _now()
+    with connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        series = connection.execute(
+            """
+            SELECT id, updated_at
+            FROM video_series
+            WHERE id = ? AND is_deleted = 0
+            """,
+            (int(series_id),),
+        ).fetchone()
+        if series is None:
+            connection.rollback()
+            raise ValueError("视频集不存在")
+        if (
+            expected_updated_at
+            and str(series["updated_at"]) != str(expected_updated_at)
+        ):
+            connection.rollback()
+            raise ValueError("视频集已被其他操作修改，请刷新后重试")
+        if ids:
+            placeholders = ",".join("?" for _ in ids)
+            found = connection.execute(
+                """
+                SELECT id FROM manual_categories
+                WHERE id IN ({})
+                """.format(placeholders),
+                ids,
+            ).fetchall()
+            if {int(row["id"]) for row in found} != set(ids):
+                connection.rollback()
+                raise ValueError("部分人工标签不存在")
+        connection.execute(
+            """
+            DELETE FROM video_series_manual_categories
+            WHERE series_id = ?
+            """,
+            (int(series_id),),
+        )
+        for manual_category_id in ids:
+            connection.execute(
+                """
+                INSERT INTO video_series_manual_categories (
+                    series_id, manual_category_id, created_at
+                ) VALUES (?, ?, ?)
+                """,
+                (int(series_id), manual_category_id, now),
+            )
+        connection.execute(
+            """
+            UPDATE video_series
+            SET updated_at = ?
+            WHERE id = ?
+            """,
+            (now, int(series_id)),
+        )
+        connection.commit()
+    return manual_categories_for_series(series_id)
 def manual_categories_for_video(video_id: int) -> List[Dict]:
     with connect() as connection:
         rows = connection.execute(

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl, quote, urljoin, urlsplit
@@ -30,7 +32,7 @@ from local_video_site.media.editing.format import (
     create_standardization_job,
     standardization_preview,
 )
-from local_video_site.storage.volumes import decorate_video, resolve_video_storage
+from local_video_site.storage.volumes import decorate_video_cached, resolve_video_storage
 from ..templates import TEMPLATES
 from ..urls import (
     safe_return_path,
@@ -121,8 +123,8 @@ def _open_vlc_on_desktop(stream_url: str) -> None:
             detail="当前系统不支持一键启动 VLC，请复制原始地址或下载播放列表。",
         )
     try:
-        completed = subprocess.run(
-            ["open", "-a", "VLC", stream_url],
+        launched = subprocess.run(
+            ["open", "-a", "VLC"],
             capture_output=True,
             text=True,
             timeout=8,
@@ -133,12 +135,72 @@ def _open_vlc_on_desktop(stream_url: str) -> None:
             status_code=503,
             detail="无法启动 VLC：{}".format(exc),
         ) from exc
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()
+    if launched.returncode != 0:
+        detail = (launched.stderr or launched.stdout or "").strip()
         raise HTTPException(
             status_code=503,
             detail=detail or "无法启动 VLC，请确认已安装 VLC 播放器。",
         )
+    for attempt in range(20):
+        try:
+            ready = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "VLC" to get version',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            ready = None
+        if ready is not None and ready.returncode == 0:
+            break
+        if attempt < 19:
+            time.sleep(0.15)
+
+    script = 'tell application "VLC" to OpenURL {}'.format(
+        json.dumps(stream_url, ensure_ascii=False)
+    )
+    completed = None
+    for attempt in range(2):
+        try:
+            completed = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            completed = None
+        if completed is not None and completed.returncode == 0:
+            return
+        if attempt == 0:
+            time.sleep(0.4)
+
+    try:
+        fallback = subprocess.run(
+            ["open", "-a", "VLC", stream_url],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="无法向 VLC 发送播放地址：{}".format(exc),
+        ) from exc
+    if fallback.returncode == 0:
+        return
+    detail = (fallback.stderr or fallback.stdout or "").strip()
+    raise HTTPException(
+        status_code=503,
+        detail=detail or "无法向 VLC 发送播放地址",
+    )
 
 
 def _listing_neighbors(
@@ -254,12 +316,40 @@ def _navigation_episode_title(episode: dict) -> str:
     )
 
 
+def _cached_playback_state(video: dict) -> dict:
+    storage = decorate_video_cached(video)
+    return {
+        "video_id": int(video["id"]),
+        "state": "not_checked",
+        "playable": False,
+        "reason_code": "",
+        "storage_kind": (
+            "external" if video.get("storage_volume_id") is not None else "local"
+        ),
+        "storage_label": "",
+        "title": "",
+        "message": "",
+        "action_text": "",
+        "retryable": False,
+        "needs_cache": False,
+        "cache_ready": False,
+        "playback_url": None,
+        "engine": "native",
+        "engine_reason": "",
+        "storage_state": storage["storage_state"],
+    }
+
+
 @router.get("/watch/{video_id}", response_class=HTMLResponse)
-def watch(request: Request, video_id: int, return_to: str = ""):
+def watch(
+    request: Request,
+    video_id: int,
+    return_to: str = "",
+    start: int = 0,
+):
     identity = request.state.identity
     video = _visible_video_or_404(request, video_id)
     max_access_level = max_level_for(identity)
-    playback_info = get_playback_state(video_id, identity=identity)
     safe_return = _safe_return_path(return_to)
     previous_video, next_video = _listing_neighbors(
         video_id,
@@ -270,6 +360,12 @@ def watch(request: Request, video_id: int, return_to: str = ""):
     season = database.season_context_for_video(
         video_id,
         max_access_level=max_access_level,
+    )
+    start_playback = bool(int(start or 0) == 1 or not season)
+    playback_info = (
+        get_playback_state(video_id, identity=identity)
+        if start_playback
+        else _cached_playback_state(video)
     )
     season_episodes = []
     current_episode = None
@@ -290,7 +386,7 @@ def watch(request: Request, video_id: int, return_to: str = ""):
                 elif int(item.get("video_missing") or 0):
                     state = "missing"
                 else:
-                    storage = decorate_video({
+                    storage = decorate_video_cached({
                         "id": int(resolved_video_id),
                         "path": item.get("video_path") or "",
                         "missing": 0,
@@ -300,6 +396,15 @@ def watch(request: Request, video_id: int, return_to: str = ""):
                             "storage_relative_path"
                         ),
                         "storage_changed_at": item.get("storage_changed_at"),
+                        "storage_online_state": item.get(
+                            "storage_online_state"
+                        ),
+                        "storage_mount_path": item.get(
+                            "storage_mount_path"
+                        ),
+                        "storage_root_relative_path": item.get(
+                            "storage_root_relative_path"
+                        ),
                     })
                     state = storage["storage_state"]
             item["playback_state"] = state
@@ -309,10 +414,14 @@ def watch(request: Request, video_id: int, return_to: str = ""):
                 "external_online",
             }
             item["watch_url"] = (
-                _watch_url(int(resolved_video_id), safe_return)
+                _watch_url(
+                    int(resolved_video_id),
+                    safe_return,
+                    start_playback=True,
+                )
                 if (
                     resolved_video_id is not None
-                    and state not in {"deleted", "missing", "file_missing"}
+                    and state != "deleted"
                 )
                 else ""
             )
@@ -352,7 +461,11 @@ def watch(request: Request, video_id: int, return_to: str = ""):
             language,
             int(subtitle["id"]),
         )
-    video_path = resolve_video_storage(video)["path"]
+    video_path = (
+        resolve_video_storage(video)["path"]
+        if start_playback
+        else Path(decorate_video_cached(video)["resolved_path"])
+    )
     return TEMPLATES.TemplateResponse(
         request=request,
         name="watch.html",
@@ -374,15 +487,24 @@ def watch(request: Request, video_id: int, return_to: str = ""):
             "previous_video": previous_video,
             "next_video": next_video,
             "previous_url": (
-                _watch_url(previous_video["id"], safe_return)
+                _watch_url(
+                    previous_video["id"],
+                    safe_return,
+                    start_playback=True,
+                )
                 if previous_video
                 else None
             ),
             "next_url": (
-                _watch_url(next_video["id"], safe_return)
+                _watch_url(
+                    next_video["id"],
+                    safe_return,
+                    start_playback=True,
+                )
                 if next_video
                 else None
             ),
+            "start_playback": start_playback,
             "season": season,
             "season_episodes": season_episodes,
             "current_episode": current_episode,
@@ -418,6 +540,89 @@ def api_playback_state(request: Request, video_id: int):
         raise HTTPException(status_code=404, detail=state["message"])
     return JSONResponse(
         state,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/api/playback/resolve/{video_id}")
+def api_resolve_playback(
+    request: Request,
+    video_id: int,
+    return_to: str = "",
+):
+    video = _visible_video_or_404(request, video_id)
+    playback = get_playback_state(
+        video_id,
+        identity=request.state.identity,
+    )
+    extension = str(
+        video.get("extension")
+        or Path(str(video.get("path") or "")).suffix
+    ).lower()
+    blocked_states = {
+        "external_offline",
+        "file_missing",
+        "deleted",
+        "not_found",
+        "unsupported_codec",
+        "transcode_required",
+        "playback_failed",
+        "movi_failed",
+    }
+    if (
+        extension == ".mkv"
+        and playback.get("state") == "external_player_required"
+    ):
+        action = "external_vlc"
+    elif playback.get("playable"):
+        action = "native_playback"
+    else:
+        action = "error"
+
+    state = str(playback.get("state") or "playback_failed")
+    message = str(playback.get("message") or "")
+    if action == "error" and not message:
+        message = "当前视频暂时无法播放"
+    return JSONResponse(
+        {
+            "video_id": int(video_id),
+            "action": action,
+            "state": state,
+            "reason_code": (
+                str(playback.get("reason_code") or state)
+                if state in blocked_states or action == "error"
+                else ""
+            ),
+            "title": str(
+                playback.get("title")
+                or video.get("display_title")
+                or video.get("title")
+                or "未命名视频"
+            ),
+            "message": message,
+            "retryable": bool(playback.get("retryable")),
+            "extension": extension,
+            "storage_kind": str(playback.get("storage_kind") or ""),
+            "storage_label": str(playback.get("storage_label") or ""),
+            "can_open_vlc": bool(
+                extension in {".mkv", ".mp4", ".m4v", ".mov"}
+                and state not in {
+                    "external_offline",
+                    "file_missing",
+                    "deleted",
+                    "not_found",
+                }
+            ),
+            "native_url": (
+                _watch_url(
+                    video_id,
+                    _safe_return_path(return_to),
+                    start_playback=True,
+                )
+                if action == "native_playback"
+                else ""
+            ),
+        },
         headers={"Cache-Control": "no-store"},
     )
 

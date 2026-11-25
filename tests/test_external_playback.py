@@ -123,7 +123,137 @@ class ExternalPlaybackTests(unittest.TestCase):
             response.text,
         )
         self.assertIn(
-            "/static/player.js?v=20261125-mkv-vlc",
+            "/static/player.js?v=20261125-playback-decision",
+            response.text,
+        )
+        self.assertIn('id="playback-decision-dialog"', response.text)
+        self.assertNotIn("data-auto-open-vlc", response.text)
+
+    def test_resolve_playback_distinguishes_external_and_error_states(self):
+        client = TestClient(app)
+        resolved = client.get(
+            "/api/playback/resolve/{}".format(self.public_id),
+            params={"return_to": "/"},
+        )
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+        self.assertEqual(resolved.json()["action"], "external_vlc")
+        self.assertTrue(resolved.json()["can_open_vlc"])
+
+        unavailable = {
+            "state": "external_offline",
+            "playable": False,
+            "message": "外置硬盘 D04 当前未连接",
+            "retryable": True,
+            "storage_kind": "external",
+            "storage_label": "D04",
+            "reason_code": "external_offline",
+        }
+        with patch(
+            "local_video_site.web.routes.playback.get_playback_state",
+            return_value=unavailable,
+        ):
+            failed = client.get(
+                "/api/playback/resolve/{}".format(self.public_id),
+                params={"return_to": "/"},
+            )
+        self.assertEqual(failed.json()["action"], "error")
+        self.assertIn("D04", failed.json()["message"])
+
+        mp4_id = self._video("Playback.mp4", 0)
+        database.update_video_technical_info(
+            mp4_id,
+            {
+                "duration": 60,
+                "width": 1920,
+                "height": 1080,
+                "video_codec": "h264",
+                "audio_codec": "aac",
+                "container_format": "mp4",
+            },
+        )
+        native = client.get(
+            "/api/playback/resolve/{}".format(mp4_id),
+            params={"return_to": "/"},
+        )
+        self.assertEqual(native.status_code, 200, native.text)
+        self.assertEqual(native.json()["action"], "native_playback")
+        self.assertIn("start=1", native.json()["native_url"])
+
+    def test_external_episode_cards_use_cached_volume_online_state(self):
+        with database.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO video_storage_volumes (
+                    storage_key, label, mount_path, root_relative_path,
+                    is_active, online_state, created_at, updated_at
+                ) VALUES (?, ?, ?, '', 1, 'online', ?, ?)
+                """,
+                (
+                    "test-external-volume",
+                    "Test",
+                    str(self.video_root),
+                    "2026-11-25T00:00:00+08:00",
+                    "2026-11-25T00:00:00+08:00",
+                ),
+            )
+            volume_id = int(cursor.lastrowid)
+            connection.execute(
+                """
+                UPDATE videos
+                SET storage_volume_id = ?, storage_relative_path = ?
+                WHERE id = ?
+                """,
+                (
+                    volume_id,
+                    "Public External.mkv",
+                    self.public_id,
+                ),
+            )
+        created = database.upsert_video_season(
+            series_name="External Series",
+            season_name="第一季",
+            season_number=1,
+            provider="test",
+            source_url="external-scan://test",
+            relative_directory="videos",
+        )
+        episode_id = database.create_video_episode(
+            season_id=int(created["season"]["id"]),
+            episode_number=1,
+            display_title="第1集",
+            source_url="external-scan://test/1",
+            normalized_source_url="external-scan://test/1",
+            relative_path="Public External.mkv",
+            absolute_path=str(self.video_root / "Public External.mkv"),
+            download_task_id=None,
+            episode_title="Public External.mkv",
+        )
+        database.attach_episode_video(
+            episode_id,
+            self.public_id,
+            self.video_root / "Public External.mkv",
+        )
+
+        with (
+            patch(
+                "local_video_site.web.routes.playback.get_playback_state",
+                side_effect=AssertionError("首屏不应探测播放状态"),
+            ),
+            patch(
+                "local_video_site.web.routes.playback.resolve_video_storage",
+                side_effect=AssertionError("首屏不应探测存储"),
+            ),
+        ):
+            response = TestClient(app).get(
+                "/watch/{}".format(self.public_id),
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("当前不可用", response.text)
+        self.assertIn('data-start-playback="0"', response.text)
+        self.assertIn('id="playback-decision-dialog"', response.text)
+        self.assertIn(
+            'class="season-episode-button is-current"',
             response.text,
         )
 
@@ -135,7 +265,11 @@ class ExternalPlaybackTests(unittest.TestCase):
         )
         with patch(
             "local_video_site.web.routes.playback.subprocess.run",
-            return_value=CompletedProcess([], 0, "", ""),
+            side_effect=(
+                CompletedProcess([], 0, "", ""),
+                CompletedProcess([], 0, "3.0.24\n", ""),
+                CompletedProcess([], 0, "", ""),
+            ),
         ) as run:
             response = client.post(
                 "/api/external-playback/{}/open".format(self.public_id),
@@ -144,12 +278,17 @@ class ExternalPlaybackTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["status"], "opened")
-        command = run.call_args.args[0]
-        self.assertEqual(command[:3], ["open", "-a", "VLC"])
+        launch_command = run.call_args_list[0].args[0]
+        self.assertEqual(launch_command, ["open", "-a", "VLC"])
+        open_command = run.call_args_list[-1].args[0]
+        self.assertEqual(open_command[:2], ["osascript", "-e"])
         self.assertTrue(
-            command[3].startswith(
-                "http://127.0.0.1/media/{}?token=".format(self.public_id)
-            )
+            "http://127.0.0.1/media/{}?token=".format(self.public_id)
+            in open_command[2]
+        )
+        self.assertIn(
+            "OpenURL",
+            open_command[2],
         )
 
     def test_remote_open_endpoint_does_not_launch_server_vlc(self):

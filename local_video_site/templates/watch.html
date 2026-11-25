@@ -7,7 +7,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ watch_heading|truncate(60, True, "…") }} · 本地视频库</title>
-  <link rel="stylesheet" href="/static/app.css?v=20261125-mkv-vlc">
+  <link rel="stylesheet" href="/static/app.css?v=20261125-playback-decision">
 </head>
 <body class="watch-page">
   <header class="site-header compact topbar">
@@ -89,8 +89,18 @@
         </div>
       </section>
       {% endif %}
+      {% if video_extension|lower != ".mkv" and not start_playback %}
+      <section class="playback-selection-poster">
+        <img src="{{ poster_url }}" alt="">
+        <div>
+          <p class="eyebrow">SELECT EPISODE</p>
+          <h2>选择剧集开始播放</h2>
+          <p>视频状态将在点击剧集后检查。</p>
+        </div>
+      </section>
+      {% endif %}
       <video id="player" controls preload="metadata" playsinline
-        {% if video_extension|lower == ".mkv" %}class="is-external-only"{% endif %}
+        {% if video_extension|lower == ".mkv" %}class="is-external-only"{% elif not start_playback %}class="is-selection-only"{% endif %}
         subtitlesize="0.72"
         subtitlebg="0"
         subtitleedge="none"
@@ -107,10 +117,13 @@
         data-video-codec="{{ video.video_codec or '' }}"
         data-audio-codec="{{ video.audio_codec or '' }}"
         data-video-extension="{{ video_extension }}"
+        data-video-id="{{ video.id }}"
+        data-return-to="{{ return_to }}"
+        data-start-playback="{{ 1 if start_playback else 0 }}"
         data-external-only="{{ 1 if video_extension|lower == '.mkv' else 0 }}"
         data-external-playback-url="/api/external-playback/{{ video.id }}"
         data-external-playlist-url="/api/external-playback/{{ video.id }}/playlist.m3u"
-        {% if playback.playable and playback.engine != "movi" %}src="{{ playback.playback_url }}"{% endif %}>
+        {% if start_playback and playback.playable and playback.engine != "movi" %}src="{{ playback.playback_url }}"{% endif %}>
         {% for subtitle in subtitle_assets %}
         <track
           kind="subtitles"
@@ -126,7 +139,7 @@
         id="playback-warning"
         class="playback-warning playback-state-{{ playback.state }}"
         data-state="{{ playback.state }}"
-        {% if playback.playable %}hidden{% endif %}
+        {% if playback.playable or not start_playback %}hidden{% endif %}
       >
         <strong id="playback-warning-title">{{ playback.title }}</strong>
         <span id="playback-warning-text">{{ playback.message }}</span>
@@ -234,6 +247,8 @@
             class="season-episode-button{% if episode.video_id == video.id %} is-current{% endif %}{% if not episode.playable %} is-offline{% endif %}"
             href="{{ episode.watch_url }}"
             title="{{ episode.episode_title or episode.display_title }}"
+            data-resolve-video="{{ episode.video_id }}"
+            data-video-title="{{ episode.episode_title or episode.display_title }}"
           >
             <strong>{{ "%02d"|format(episode.display_episode_number or episode.episode_number) }}</strong>
             {% if not episode.playable %}
@@ -441,6 +456,46 @@
     {% endif %}
   </main>
 
+  <dialog
+    id="playback-decision-dialog"
+    class="management-dialog playback-decision-dialog"
+    aria-labelledby="playback-decision-title"
+  >
+    <div class="management-dialog-card">
+      <header class="download-dialog-header">
+        <div>
+          <p class="eyebrow">PLAYBACK CHECK</p>
+          <h2 id="playback-decision-title">无法播放</h2>
+        </div>
+        <button
+          class="cover-dialog-close"
+          type="button"
+          data-close-playback-decision
+          aria-label="关闭"
+        >×</button>
+      </header>
+      <p id="playback-decision-message" class="playback-decision-message"></p>
+      <footer class="edit-video-actions">
+        <button
+          id="retry-playback-decision"
+          class="download-secondary-button"
+          type="button"
+        >重试</button>
+        <button
+          id="copy-playback-decision-url"
+          class="download-secondary-button"
+          type="button"
+          hidden
+        >复制视频地址</button>
+        <button
+          class="download-primary-button"
+          type="button"
+          data-close-playback-decision
+        >关闭</button>
+      </footer>
+    </div>
+  </dialog>
+
   {% if is_admin %}
   <dialog
     id="manual-category-edit-dialog"
@@ -629,7 +684,7 @@
     </div>
   </dialog>
   {% endif %}
-  <script type="module" src="/static/player.js?v=20261125-mkv-vlc"></script>
+  <script type="module" src="/static/player.js?v=20261125-playback-decision"></script>
   <script src="/static/refresh-video-metadata.js"></script>
   <script src="/static/edit-manual-categories.js"></script>
   <script src="/static/video-title.js"></script>
